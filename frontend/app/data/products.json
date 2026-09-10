@@ -1,0 +1,1034 @@
+[
+  {
+    "id": 1,
+    "productImage": "/products/footwear/item1.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "productImage": "/products/footwear/item2.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "productImage": "/products/footwear/item3.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "productImage": "/products/footwear/item4.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "productImage": "/products/footwear/item5.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "productImage": "/products/footwear/item6.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "productImage": "/products/footwear/item7.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "productImage": "/products/footwear/item8.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "productImage": "/products/footwear/item9.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "productImage": "/products/footwear/item10.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "productImage": "/products/footwear/item11.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "productImage": "/products/footwear/item13.jpg",
+    "productName": "MC 05 Sizes: 27-44",
+    "sizes": [
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44"
+    ],
+    "price": "999",
+    "sole": [
+      {
+        "color": "yellow",
+        "soleImg": "/products/sole/Pop_Thum_Yellow_Sole.webp"
+      },
+      {
+        "color": "pink",
+        "soleImg": "/products/sole/Pop_Thumb_Pink_Sole.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/sole/Pop_Thumb_Blue_Sole.webp"
+      },
+      {
+        "color": "black",
+        "soleImg": "/products/sole/Pop_Thumb_Black_Sole.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/sole/Pop_Thum_Grey_Sole.webp"
+      },
+      {
+        "color": "green",
+        "soleImg": "/products/sole/Pop_Thum_Green_Sole.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/sole/Pop_Thum_Brown_Sole.webp"
+      }
+    ],
+    "strip": [
+      {
+        "color": "black",
+        "soleImg": "/products/stripe/Pop_Thumb_Black_Strap.webp"
+      },
+      {
+        "color": "blue",
+        "soleImg": "/products/stripe/Pop_Thumb_Blue_Strap.webp"
+      },
+      {
+        "color": "brown",
+        "soleImg": "/products/stripe/Pop_Thumb_Brown_Strap.webp"
+      },
+      {
+        "color": "caramel",
+        "soleImg": "/products/stripe/Pop_Thumb_Caramel_Strap.webp"
+      },
+      {
+        "color": "grey",
+        "soleImg": "/products/stripe/Pop_Thumb_Grey_Strap.webp"
+      },
+      {
+        "color": "white",
+        "soleImg": "/products/stripe/Pop_Thumb_White_Strap.webp"
+      },
+      {
+        "color": "yellow",
+        "soleImg": "/products/stripe/Pop_Thumb_Yellow_Strap.webp"
+      }
+    ]
+  }
+]
