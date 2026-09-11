@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -38,7 +38,7 @@ const Loader = () => {
   );
 };
 
-const OrderSuccess = () => {
+const OrderContent = () => {
   const searchParams = useSearchParams();
 
   const orderId = searchParams.get('orderId');
@@ -456,6 +456,20 @@ const OrderSuccess = () => {
         </div>
       </div>
     </section>
+  );
+};
+
+const OrderSuccess = () => {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader />
+        </div>
+      }
+    >
+      <OrderContent />
+    </Suspense>
   );
 };
 

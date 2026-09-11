@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import SortOptions from '../components/SortOptions';
@@ -8,7 +8,7 @@ import { fetchAllProducts } from '../lib/api';
 import Loader from '../components/Loader';
 import Pagination from '../components/Pagination';
 
-const Shops = () => {
+const ShopsContent = () => {
   const searchParams = useSearchParams();
 
   const [products, setProducts] = useState([]);
@@ -151,6 +151,20 @@ const Shops = () => {
         )}
       </section>
     </>
+  );
+};
+
+const Shops = () => {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader />
+        </div>
+      }
+    >
+      <ShopsContent />
+    </Suspense>
   );
 };
 

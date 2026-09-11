@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { FiArrowLeft, FiPrinter } from 'react-icons/fi';
@@ -26,7 +26,7 @@ const formatDate = (value) => {
 const optionName = (option) =>
   option?.colorName || option?.name || option?.color || '';
 
-export default function InvoicePage() {
+function InvoiceContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get('orderId');
   const { getOrder, loading } = useOrders();
@@ -309,5 +309,19 @@ export default function InvoicePage() {
         }
       `}</style>
     </section>
+  );
+}
+
+export default function InvoicePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[70vh] flex items-center justify-center">
+          Loading invoice...
+        </div>
+      }
+    >
+      <InvoiceContent />
+    </Suspense>
   );
 }

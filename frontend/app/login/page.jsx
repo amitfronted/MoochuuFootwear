@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa';
 import Link from 'next/link';
 import { useAuth } from '../context/AuthContext';
@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import Loader from '../components/Loader';
 import GoogleLoginButton from '../components/GoogleLoginButton';
 
-const Login = () => {
+const LoginContent = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isShowPassword, setIsShowPassword] = useState(false);
@@ -121,6 +121,20 @@ const Login = () => {
         </div>
       </div>
     </section>
+  );
+};
+
+const Login = () => {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader />
+        </div>
+      }
+    >
+      <LoginContent />
+    </Suspense>
   );
 };
 
