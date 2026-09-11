@@ -21,11 +21,17 @@ import inventoryRouter from './routes/inventory.routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 7000;
-const whitelist = ['http://localhost:3000', 'http://localhost:3001'];
+
+const whitelist = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  process.env.FRONTEND_URL,
+  process.env.ADMIN_URL,
+].filter(Boolean);
+
 const corsOptions = {
   origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || whitelist.indexOf(origin) !== -1) {
+    if (!origin || whitelist.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
