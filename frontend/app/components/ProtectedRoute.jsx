@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 const protectedRoutes = [
   '/my-account',
   '/checkout',
-  '/orders-success',
+  '/order-success',
   '/wishlist',
 ];
 

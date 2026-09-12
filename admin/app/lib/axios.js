@@ -16,6 +16,7 @@ const skipRefreshUrls = [
   '/user/resend-otp',
   '/user/forgot-password',
   '/user/verify-forgot-password-otp',
+  '/user/reset-password',
 ];
 
 api.interceptors.response.use(
@@ -28,23 +29,32 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Only handle 401 Unauthorized
+    if (error.response?.status !== 401) {
+      return Promise.reject(error);
+    }
+
     const requestUrl = originalRequest.url || '';
 
     const shouldSkipRefresh = skipRefreshUrls.some((url) =>
       requestUrl.includes(url),
     );
 
-    if (
-      error.response?.status === 401 &&
-      !originalRequest._retry &&
-      !shouldSkipRefresh
-    ) {
+    // Don't refresh authentication-related requests
+    if (shouldSkipRefresh) {
+      return Promise.reject(error);
+    }
+
+    // Don't retry the same request more than once
+    if (originalRequest._retry) {
       return Promise.reject(error);
     }
 
     originalRequest._retry = true;
 
     try {
+      // Prevent multiple simultaneous requests from
+      // creating multiple refresh requests.
       if (!refreshPromise) {
         refreshPromise = api.post('/user/refresh-token').finally(() => {
           refreshPromise = null;
@@ -53,6 +63,7 @@ api.interceptors.response.use(
 
       await refreshPromise;
 
+      // Retry original request with the new access-token cookie
       return api(originalRequest);
     } catch (refreshError) {
       return Promise.reject(refreshError);
