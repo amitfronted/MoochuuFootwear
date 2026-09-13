@@ -6,6 +6,14 @@ import Notification from '../models/notification.model.js';
 
 export const getNotificationsController = async (req, res) => {
   try {
+    res.set(
+      'Cache-Control',
+      'no-store, no-cache, must-revalidate, proxy-revalidate',
+    );
+
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     const notifications = await Notification.find({
       recipient: req.userId,
     })

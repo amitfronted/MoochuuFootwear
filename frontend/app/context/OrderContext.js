@@ -52,6 +52,65 @@ export const OrderProvider = ({ children }) => {
     [],
   );
 
+  const createRazorpayOrder = useCallback(async ({ addressId }) => {
+    try {
+      setLoading(true);
+
+      const response = await api.post('/orders/razorpay', {
+        addressId,
+      });
+
+      return response.data;
+    } catch (error) {
+      return {
+        success: false,
+        message:
+          error.response?.data?.message ||
+          error.message ||
+          'Unable to create online payment order.',
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const verifyRazorpayPayment = useCallback(
+    async ({
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      addressId,
+    }) => {
+      try {
+        setLoading(true);
+
+        const response = await api.post('/orders/razorpay/verify', {
+          razorpay_order_id,
+          razorpay_payment_id,
+          razorpay_signature,
+          addressId,
+        });
+
+        if (response.data?.success && response.data?.data?.order) {
+          setOrders((prev) => [response.data.data.order, ...prev]);
+        }
+
+        return response.data;
+      } catch (error) {
+        return {
+          success: false,
+          message:
+            error.response?.data?.message ||
+            error.message ||
+            'Unable to verify payment.',
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
   const getMyOrders = useCallback(async () => {
     try {
       setLoading(true);
@@ -94,6 +153,8 @@ export const OrderProvider = ({ children }) => {
         orders,
         loading,
         createOrder,
+        createRazorpayOrder,
+        verifyRazorpayPayment,
         getMyOrders,
         getOrder,
       }}

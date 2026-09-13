@@ -25,7 +25,12 @@ const Checkout = () => {
   const router = useRouter();
   const { user, authLoading } = useAuth();
   const { items, subtotal, cartLoading, getCart } = useCart();
-  const { createOrder, loading: orderLoading } = useOrders();
+  const {
+    createOrder,
+    loading: orderLoading,
+    createRazorpayOrder,
+    verifyRazorpayPayment,
+  } = useOrders();
 
   const {
     openAddressPanel,
@@ -37,10 +42,28 @@ const Checkout = () => {
 
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('COD');
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
   const shippingCharge = 0;
   const tax = 0;
   const total = Number(subtotal || 0) + shippingCharge + tax;
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+
+      const script = document.createElement('script');
+
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+
+      document.body.appendChild(script);
+    });
+  };
 
   useEffect(() => {
     if (authLoading) return;
@@ -63,6 +86,136 @@ const Checkout = () => {
     () => addresses.find((address) => address._id === selectedAddress),
     [addresses, selectedAddress],
   );
+
+  const handleOnlinePayment = async () => {
+    if (!selectedAddress) {
+      toast.error('Please select a delivery address.');
+      return;
+    }
+
+    try {
+      setIsPlacingOrder(true);
+
+      // 1. Load Razorpay Checkout
+      const scriptLoaded = await loadRazorpayScript();
+
+      if (!scriptLoaded) {
+        toast.error('Unable to load Razorpay. Please try again.');
+        return;
+      }
+
+      // 2. Create Razorpay order on our server
+      const result = await createRazorpayOrder({
+        addressId: selectedAddress,
+      });
+
+      if (!result?.success || !result?.data?.razorpayOrderId) {
+        toast.error(result?.message || 'Unable to create payment order.');
+        return;
+      }
+
+      const { razorpayOrderId, amount, currency, keyId } = result.data;
+
+      // 3. Open Razorpay Checkout
+      const options = {
+        key: keyId,
+
+        amount,
+        currency,
+
+        name: 'Moochuu Footwear',
+        description: 'Footwear Purchase',
+
+        order_id: razorpayOrderId,
+
+        prefill: {
+          name: user?.name || '',
+          email: user?.email || '',
+          contact: user?.mobile || user?.phone || '',
+        },
+
+        theme: {
+          color: '#000000',
+        },
+
+        handler: async function (response) {
+          console.log('RAZORPAY PAYMENT SUCCESS:', response);
+
+          try {
+            setIsPlacingOrder(true);
+
+            const verifyResult = await verifyRazorpayPayment({
+              razorpay_order_id: response.razorpay_order_id,
+
+              razorpay_payment_id: response.razorpay_payment_id,
+
+              razorpay_signature: response.razorpay_signature,
+
+              addressId: selectedAddress,
+            });
+
+            if (!verifyResult?.success) {
+              toast.error(
+                verifyResult?.message || 'Payment verification failed.',
+              );
+
+              return;
+            }
+
+            /**
+             * Payment + order successful
+             */
+            window.dispatchEvent(new Event('cart-updated'));
+
+            toast.success('Payment successful. Order placed!');
+
+            const orderId = verifyResult.data?.order?._id;
+
+            if (orderId) {
+              router.push(`/order-success?orderId=${orderId}`);
+            } else {
+              router.push('/my-account/my-orders');
+            }
+          } catch (error) {
+            console.error('Payment verification error:', error);
+
+            toast.error(
+              error?.message ||
+                'Payment was successful, but order verification failed. Please contact support.',
+            );
+          } finally {
+            setIsPlacingOrder(false);
+          }
+        },
+
+        modal: {
+          ondismiss: function () {
+            console.log('Razorpay checkout closed.');
+          },
+        },
+      };
+
+      const razorpay = new window.Razorpay(options);
+
+      razorpay.on('payment.failed', function (response) {
+        console.log('RAZORPAY PAYMENT FAILED:', response.error);
+
+        toast.error(
+          response.error?.description || 'Payment failed. Please try again.',
+        );
+      });
+
+      razorpay.open();
+    } catch (error) {
+      console.error('Razorpay error:', error);
+
+      toast.error(
+        error?.message || 'Something went wrong with online payment.',
+      );
+    } finally {
+      setIsPlacingOrder(false);
+    }
+  };
 
   const handleDelete = (addressId) => {
     toast(
@@ -123,6 +276,11 @@ const Checkout = () => {
     if (!items.length) {
       toast.error('Your cart is empty.');
       router.push('/cart');
+      return;
+    }
+
+    if (paymentMethod === 'ONLINE') {
+      await handleOnlinePayment();
       return;
     }
 
@@ -334,15 +492,15 @@ const Checkout = () => {
                           Online Payment
                         </span>
                         <span className="text-sm text-gray-500">
-                          Payment gateway integration can be connected next.
+                          Pay securely using Razorpay.
                         </span>
                       </span>
                     </label>
 
                     {paymentMethod === 'ONLINE' && (
                       <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                        Online payment is not connected yet. Choose Cash on
-                        Delivery to place an order now.
+                        You will be redirected to Razorpay secure checkout to
+                        complete your payment.
                       </div>
                     )}
                   </div>
@@ -476,14 +634,18 @@ const Checkout = () => {
                       type="button"
                       disabled={
                         orderLoading ||
+                        isPlacingOrder ||
                         !selectedAddress ||
-                        !items.length ||
-                        paymentMethod === 'ONLINE'
+                        !items.length
                       }
                       onClick={handlePlaceOrder}
                       className="w-full rounded-md bg-yellow px-4 py-3 font-semibold text-black transition hover:bg-black hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {orderLoading ? 'Placing Order...' : 'Place Order'}
+                      {orderLoading || isPlacingOrder
+                        ? 'Processing...'
+                        : paymentMethod === 'ONLINE'
+                          ? 'Pay Now'
+                          : 'Place Order'}
                     </button>
 
                     <p className="text-center text-xs text-gray-500">

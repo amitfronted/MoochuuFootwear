@@ -18,6 +18,7 @@ import orderRouter from './routes/order.routes.js';
 import notificationRouter from './routes/notification.routes.js';
 import dashboardRouter from './routes/dashboard.routes.js';
 import inventoryRouter from './routes/inventory.routes.js';
+import { razorpayWebhookController } from './controllers/razorpayWebhook.controller.js';
 
 const app = express();
 const PORT = process.env.PORT || 7000;
@@ -41,6 +42,12 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+app.use(
+  '/api/orders/razorpay/webhook',
+  express.raw({ type: 'application/json' }),
+  razorpayWebhookController,
+);
 
 app.use(express.json());
 app.use(cookieParser());

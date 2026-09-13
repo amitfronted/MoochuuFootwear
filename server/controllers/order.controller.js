@@ -1,6 +1,9 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 
+import razorpay from '../config/razorpay.js';
+import PaymentAttempt from '../models/paymentAttempt.model.js';
+
 import Order from '../models/order.model.js';
 import Cart from '../models/cart.model.js';
 import Product from '../models/product.model.js';
@@ -202,6 +205,7 @@ const getRequiredStock = (product, cartItem) => {
     colorId: base._id,
     variantId: baseVariant._id,
     colorName: base.colorName,
+    image: base.image || '',
     size: String(baseVariant.size),
     required: quantity,
     available: Number(baseVariant.stockQuantity),
@@ -219,6 +223,7 @@ const getRequiredStock = (product, cartItem) => {
     colorId: strap._id,
     variantId: strapVariant._id,
     colorName: strap.colorName,
+    image: strap.image || '',
     size: String(strapVariant.size),
     required: quantity,
     available: Number(strapVariant.stockQuantity),
@@ -251,6 +256,7 @@ const getRequiredStock = (product, cartItem) => {
       colorId: thumb._id,
       variantId: thumbVariant._id,
       colorName: thumb.colorName,
+      image: thumb.image || '',
       size: String(thumbVariant.size),
       required: quantity,
       available: Number(thumbVariant.stockQuantity),
@@ -413,12 +419,11 @@ const decrementStandardStock = async (
 };
 
 /**
- * CREATE ORDER
+ * ============================================================
+ * CREATE COD ORDER
+ * ============================================================
  *
- * POST /api/order/create
- *
- * Headers:
- * Idempotency-Key: unique-checkout-key
+ * POST /api/orders
  *
  * Body:
  * {
@@ -522,8 +527,10 @@ export const createOrderController = async (req, res) => {
    * ONLINE PAYMENT
    * ============================================================
    *
-   * Online payment is intentionally disabled until
-   * Razorpay / Stripe payment verification is implemented.
+   * Online payment is handled separately through:
+   *
+   * createRazorpayOrderController()
+   * verifyRazorpayPaymentController()
    *
    * ============================================================
    */
@@ -531,18 +538,13 @@ export const createOrderController = async (req, res) => {
   if (paymentMethod === 'ONLINE') {
     return res.status(400).json({
       success: false,
-      message:
-        'Online payment is not configured yet. Please choose Cash on Delivery.',
+      message: 'Please use the Razorpay checkout flow for online payment.',
     });
   }
 
   /**
    * ============================================================
    * CHECK EXISTING IDEMPOTENCY REQUEST
-   * ============================================================
-   *
-   * This is the first protection against duplicate checkout.
-   *
    * ============================================================
    */
 
@@ -636,11 +638,6 @@ export const createOrderController = async (req, res) => {
        * ========================================================
        * CREATE IDEMPOTENCY RECORD
        * ========================================================
-       *
-       * Because `key` is UNIQUE in MongoDB, two simultaneous
-       * requests cannot successfully create the same key.
-       *
-       * ========================================================
        */
 
       const idempotencyRecord = new IdempotencyKey({
@@ -649,7 +646,9 @@ export const createOrderController = async (req, res) => {
         status: 'PROCESSING',
       });
 
-      await idempotencyRecord.save({ session });
+      await idempotencyRecord.save({
+        session,
+      });
 
       /**
        * ========================================================
@@ -697,10 +696,11 @@ export const createOrderController = async (req, res) => {
        * GET ACTIVE PRODUCTS
        * ========================================================
        *
-       * IMPORTANT:
-       * Never trust product information coming from frontend.
+       * Never trust product information
+       * coming from frontend.
        *
-       * Price and stock are taken from MongoDB.
+       * Price and stock are taken
+       * from MongoDB.
        *
        * ========================================================
        */
@@ -924,7 +924,6 @@ export const createOrderController = async (req, res) => {
            * ----------------------------------------------------
            *
            * Optional.
-           * ----------------------------------------------------
            */
 
           const thumbRequirement = requirements.find(
@@ -990,7 +989,8 @@ export const createOrderController = async (req, res) => {
           /**
            * STANDARD PRODUCT
            *
-           * Needed for cancellation stock restoration.
+           * Needed for cancellation
+           * stock restoration.
            */
 
           variantId: standardRequirement?.variantId || null,
@@ -1000,7 +1000,9 @@ export const createOrderController = async (req, res) => {
            */
 
           base,
+
           strap,
+
           thumb,
         });
       }
@@ -1034,10 +1036,6 @@ export const createOrderController = async (req, res) => {
               `Product size ${requirement.size} just went out of stock. Please review your cart.`,
             );
           }
-
-          /**
-           * Inventory audit
-           */
 
           inventoryEntries.push({
             type: 'ORDER',
@@ -1088,11 +1086,17 @@ export const createOrderController = async (req, res) => {
 
         const result = await decrementComponentStock(
           Model,
+
           requirement.componentId,
+
           requirement.colorId,
+
           requirement.variantId,
+
           requirement.size,
+
           requirement.required,
+
           session,
         );
 
@@ -1136,8 +1140,8 @@ export const createOrderController = async (req, res) => {
        * TOTALS
        * ========================================================
        *
-       * Currently shipping/tax are 0 in your project.
-       * We can implement them later.
+       * Currently shipping/tax are 0
+       * in your project.
        *
        * ========================================================
        */
@@ -1246,11 +1250,13 @@ export const createOrderController = async (req, res) => {
         {
           _id: userId,
         },
+
         {
           $push: {
             orderHistory: createdOrder._id,
           },
         },
+
         {
           session,
         },
@@ -1261,8 +1267,6 @@ export const createOrderController = async (req, res) => {
        * COMPLETE IDEMPOTENCY RECORD
        * ========================================================
        *
-       * This connects:
-       *
        * checkout key → order
        *
        * ========================================================
@@ -1271,8 +1275,10 @@ export const createOrderController = async (req, res) => {
       await IdempotencyKey.updateOne(
         {
           key: cleanIdempotencyKey,
+
           userId,
         },
+
         {
           $set: {
             orderId: createdOrder._id,
@@ -1280,6 +1286,7 @@ export const createOrderController = async (req, res) => {
             status: 'COMPLETED',
           },
         },
+
         {
           session,
         },
@@ -1290,17 +1297,6 @@ export const createOrderController = async (req, res) => {
      * ==========================================================
      * TRANSACTION SUCCESS
      * ==========================================================
-     *
-     * At this point:
-     *
-     * Order created
-     * Stock deducted
-     * Inventory audited
-     * Cart cleared
-     * User history updated
-     * Idempotency completed
-     *
-     * ==========================================================
      */
 
     /**
@@ -1308,10 +1304,10 @@ export const createOrderController = async (req, res) => {
      * ADMIN NOTIFICATION
      * ==========================================================
      *
-     * IMPORTANT:
      * Do this AFTER transaction.
      *
-     * Notification failure must NOT rollback order.
+     * Notification failure must NOT
+     * rollback order.
      *
      * ==========================================================
      */
@@ -1392,17 +1388,13 @@ export const createOrderController = async (req, res) => {
      * ==========================================================
      * DUPLICATE IDEMPOTENCY KEY
      * ==========================================================
-     *
-     * MongoDB unique index protects against two requests
-     * arriving at exactly the same time.
-     *
-     * ==========================================================
      */
 
     if (error?.code === 11000) {
       try {
         const existingRequest = await IdempotencyKey.findOne({
           key: cleanIdempotencyKey,
+
           userId,
         }).populate('orderId');
 
@@ -1479,35 +1471,59 @@ export const createOrderController = async (req, res) => {
         : errorMessage || 'Unable to place order.',
     });
   } finally {
-    /**
-     * ==========================================================
-     * END SESSION
-     * ==========================================================
-     */
-
     await session.endSession();
   }
 };
 
 /**
+ * ============================================================
  * GET MY ORDERS
+ * ============================================================
  *
- * GET /api/order/my-orders
- */
-/**
- * GET MY ORDERS
+ * GET /api/orders/my-orders
  *
- * GET /api/order/my-orders
+ * Returns all orders belonging to the logged-in user.
+ * Latest orders are returned first.
+ *
+ * ============================================================
  */
+
 export const getMyOrdersController = async (req, res) => {
   try {
+    const userId = req.userId;
+
+    /**
+     * ==========================================================
+     * VALIDATE USER
+     * ==========================================================
+     */
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * GET ORDERS
+     * ==========================================================
+     */
+
     const orders = await Order.find({
-      userId: req.userId,
+      userId,
     })
       .sort({
         createdAt: -1,
       })
       .lean();
+
+    /**
+     * ==========================================================
+     * SUCCESS
+     * ==========================================================
+     */
 
     return res.status(200).json({
       success: true,
@@ -1519,6 +1535,1276 @@ export const getMyOrdersController = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Unable to fetch orders.',
+    });
+  }
+};
+/**
+ * ============================================================
+ * CREATE RAZORPAY ORDER
+ * ============================================================
+ *
+ * POST /api/orders/razorpay
+ *
+ * Body:
+ * {
+ *   "addressId": "..."
+ * }
+ *
+ * This endpoint:
+ *
+ * 1. Validates user
+ * 2. Validates address
+ * 3. Validates cart
+ * 4. Fetches ACTIVE products
+ * 5. Calculates price from database
+ * 6. Creates Razorpay order
+ *
+ * IMPORTANT:
+ * Stock is NOT deducted here.
+ *
+ * Stock will be deducted only after successful
+ * Razorpay payment verification.
+ * ============================================================
+ */
+
+export const createRazorpayOrderController = async (req, res) => {
+  const userId = req.userId;
+
+  try {
+    /**
+     * --------------------------------------------------------
+     * VALIDATE USER
+     * --------------------------------------------------------
+     */
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+    }
+
+    const { addressId } = req.body;
+
+    /**
+     * --------------------------------------------------------
+     * VALIDATE ADDRESS ID
+     * --------------------------------------------------------
+     */
+
+    if (!addressId || !mongoose.Types.ObjectId.isValid(addressId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select a valid delivery address.',
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * GET ADDRESS
+     * --------------------------------------------------------
+     */
+
+    const address = await AddressModel.findOne({
+      _id: addressId,
+      userId,
+    }).lean();
+
+    if (!address) {
+      return res.status(404).json({
+        success: false,
+        message: 'Selected delivery address was not found.',
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * GET CART
+     * --------------------------------------------------------
+     */
+
+    const cart = await Cart.findOne({
+      userId,
+    }).lean();
+
+    if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Your cart is empty.',
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * GET PRODUCT IDS
+     * --------------------------------------------------------
+     */
+
+    const productIds = cart.items.map((item) => item.productId);
+
+    /**
+     * --------------------------------------------------------
+     * GET ACTIVE PRODUCTS
+     * --------------------------------------------------------
+     */
+
+    const products = await Product.find({
+      _id: {
+        $in: productIds,
+      },
+
+      status: 'ACTIVE',
+    })
+      .populate('allowedBases')
+      .populate('allowedStraps')
+      .populate('allowedThumbs')
+      .lean();
+
+    /**
+     * --------------------------------------------------------
+     * MAKE PRODUCT MAP
+     * --------------------------------------------------------
+     */
+
+    const productMap = new Map(
+      products.map((product) => [String(product._id), product]),
+    );
+
+    /**
+     * --------------------------------------------------------
+     * VALIDATE ALL PRODUCTS
+     * --------------------------------------------------------
+     */
+
+    for (const cartItem of cart.items) {
+      const product = productMap.get(String(cartItem.productId));
+
+      if (!product) {
+        return res.status(400).json({
+          success: false,
+          message: 'One or more products in your cart are no longer available.',
+        });
+      }
+    }
+
+    /**
+     * --------------------------------------------------------
+     * CALCULATE SUBTOTAL
+     *
+     * NEVER TRUST FRONTEND TOTAL
+     * --------------------------------------------------------
+     */
+
+    let subtotal = 0;
+
+    const orderItems = [];
+
+    for (const cartItem of cart.items) {
+      const product = productMap.get(String(cartItem.productId));
+
+      if (!product) {
+        return res.status(400).json({
+          success: false,
+          message: `${cartItem.name || 'A product'} is no longer available.`,
+        });
+      }
+
+      const quantity = Number(cartItem.quantity);
+
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid quantity for ${product.name}.`,
+        });
+      }
+
+      /**
+       * NEVER trust frontend price
+       */
+
+      const unitPrice = Number(product.basePrice);
+
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid price for ${product.name}.`,
+        });
+      }
+
+      /**
+       * ------------------------------------------------------
+       * VALIDATE SIZE / OPTIONS / STOCK
+       * ------------------------------------------------------
+       */
+
+      const requirements = getRequiredStock(product, cartItem);
+
+      for (const requirement of requirements) {
+        if (requirement.available < requirement.required) {
+          return res.status(400).json({
+            success: false,
+            message: requirement.message,
+          });
+        }
+      }
+
+      const lineTotal = unitPrice * quantity;
+
+      subtotal += lineTotal;
+
+      let base = null;
+      let strap = null;
+      let thumb = null;
+
+      /**
+       * ------------------------------------------------------
+       * CUSTOMIZABLE PRODUCT
+       * ------------------------------------------------------
+       */
+
+      if (product.productType === 'CUSTOMIZABLE') {
+        const baseRequirement = requirements.find(
+          (item) => item.kind === 'base',
+        );
+
+        const strapRequirement = requirements.find(
+          (item) => item.kind === 'strap',
+        );
+
+        const thumbRequirement = requirements.find(
+          (item) => item.kind === 'thumb',
+        );
+
+        if (!baseRequirement) {
+          return res.status(400).json({
+            success: false,
+            message: `Base inventory information is missing for ${product.name}.`,
+          });
+        }
+
+        if (!strapRequirement) {
+          return res.status(400).json({
+            success: false,
+            message: `Strap inventory information is missing for ${product.name}.`,
+          });
+        }
+
+        /**
+         * BASE / SOLE SNAPSHOT
+         */
+
+        base = {
+          componentId: baseRequirement.componentId,
+
+          colorId: baseRequirement.colorId,
+
+          variantId: baseRequirement.variantId,
+
+          colorName: baseRequirement.colorName || '',
+
+          image: baseRequirement.image || '',
+        };
+
+        /**
+         * STRAP SNAPSHOT
+         */
+
+        strap = {
+          componentId: strapRequirement.componentId,
+
+          colorId: strapRequirement.colorId,
+
+          variantId: strapRequirement.variantId,
+
+          colorName: strapRequirement.colorName || '',
+
+          image: strapRequirement.image || '',
+        };
+
+        /**
+         * THUMB SNAPSHOT
+         */
+
+        if (thumbRequirement) {
+          thumb = {
+            componentId: thumbRequirement.componentId,
+
+            colorId: thumbRequirement.colorId,
+
+            variantId: thumbRequirement.variantId,
+
+            colorName: thumbRequirement.colorName || '',
+
+            image: thumbRequirement.image || '',
+          };
+        }
+      }
+
+      /**
+       * ------------------------------------------------------
+       * STANDARD PRODUCT
+       * ------------------------------------------------------
+       */
+
+      const standardRequirement =
+        product.productType === 'STANDARD'
+          ? requirements.find((item) => item.kind === 'standard')
+          : null;
+
+      /**
+       * ------------------------------------------------------
+       * CREATE PAYMENT SNAPSHOT ITEM
+       * ------------------------------------------------------
+       */
+
+      orderItems.push({
+        productId: product._id,
+
+        productCode: product.productCode || cartItem.productCode,
+
+        name: product.name,
+
+        image:
+          cartItem.image ||
+          base?.image ||
+          strap?.image ||
+          product.mainImage ||
+          '',
+
+        productType: product.productType,
+
+        size: String(cartItem.size),
+
+        quantity,
+
+        unitPrice,
+
+        lineTotal,
+
+        /**
+         * STANDARD INVENTORY
+         */
+        variantId: standardRequirement?.variantId || null,
+
+        /**
+         * CUSTOMIZABLE INVENTORY
+         */
+        base,
+
+        strap,
+
+        thumb,
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * SHIPPING / TAX
+     *
+     * Existing project currently uses 0.
+     * --------------------------------------------------------
+     */
+
+    const shippingCharge = 0;
+
+    const tax = 0;
+
+    const totalAmount = subtotal + shippingCharge + tax;
+
+    /**
+     * --------------------------------------------------------
+     * VALIDATE TOTAL
+     * --------------------------------------------------------
+     */
+
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order amount.',
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * CONVERT INR TO PAISE
+     *
+     * ₹299  => 29900
+     * ₹999  => 99900
+     * --------------------------------------------------------
+     */
+
+    const razorpayAmount = Math.round(totalAmount * 100);
+
+    /**
+     * --------------------------------------------------------
+     * CREATE RECEIPT
+     *
+     * Maximum 40 characters.
+     * --------------------------------------------------------
+     */
+
+    const receipt = `MC_${Date.now()}`;
+
+    /**
+     * --------------------------------------------------------
+     * CREATE RAZORPAY ORDER
+     * --------------------------------------------------------
+     */
+
+    const razorpayOrder = await razorpay.orders.create({
+      amount: razorpayAmount,
+
+      currency: 'INR',
+
+      receipt,
+
+      partial_payment: false,
+
+      notes: {
+        userId: String(userId),
+
+        addressId: String(addressId),
+      },
+    });
+
+    /**
+     * --------------------------------------------------------
+     * CREATE PAYMENT ATTEMPT
+     *
+     * IMPORTANT:
+     *
+     * We freeze the cart and price here.
+     *
+     * Later, during payment verification,
+     * we use this snapshot instead of trusting
+     * the current cart or current product price.
+     * --------------------------------------------------------
+     */
+
+    await PaymentAttempt.create({
+      userId,
+
+      addressId,
+
+      razorpayOrderId: razorpayOrder.id,
+
+      amount: razorpayAmount,
+
+      cartItems: orderItems,
+
+      subtotal,
+
+      shippingCharge,
+
+      tax,
+
+      totalAmount,
+
+      currency: razorpayOrder.currency,
+
+      status: 'CREATED',
+
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+    });
+
+    /**
+     * --------------------------------------------------------
+     * SUCCESS
+     * --------------------------------------------------------
+     */
+
+    return res.status(201).json({
+      success: true,
+
+      message: 'Razorpay order created successfully.',
+
+      data: {
+        razorpayOrderId: razorpayOrder.id,
+
+        amount: razorpayOrder.amount,
+
+        currency: razorpayOrder.currency,
+
+        keyId: process.env.RAZORPAY_KEY_ID,
+
+        receipt: razorpayOrder.receipt,
+      },
+    });
+  } catch (error) {
+    console.error('Create Razorpay order error:', error);
+
+    return res.status(500).json({
+      success: false,
+
+      message:
+        error?.error?.description ||
+        error?.message ||
+        'Unable to create Razorpay order.',
+    });
+  }
+};
+
+export const verifyRazorpayPaymentController = async (req, res) => {
+  const userId = req.userId;
+
+  const {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+    addressId,
+  } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized.',
+    });
+  }
+
+  if (
+    !razorpay_order_id ||
+    !razorpay_payment_id ||
+    !razorpay_signature ||
+    !addressId
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Payment verification data is incomplete.',
+    });
+  }
+
+  try {
+    /**
+     * ==========================================================
+     * 1. VERIFY RAZORPAY SIGNATURE
+     * ==========================================================
+     */
+
+    const generatedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    if (generatedSignature !== razorpay_signature) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment verification failed.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 2. FETCH RAZORPAY PAYMENT
+     * ==========================================================
+     */
+
+    const razorpayPayment = await razorpay.payments.fetch(razorpay_payment_id);
+
+    const paymentAttempt = await PaymentAttempt.findOne({
+      razorpayOrderId: razorpay_order_id,
+
+      userId,
+    });
+
+    if (!paymentAttempt) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment attempt not found.',
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * PAYMENT ALREADY PROCESSED
+     * --------------------------------------------------------
+     */
+
+    if (paymentAttempt.status === 'PAID' && paymentAttempt.orderId) {
+      const existingOrder = await Order.findById(paymentAttempt.orderId);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Payment already processed.',
+        data: {
+          order: existingOrder,
+        },
+      });
+    }
+
+    if (!razorpayPayment) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to verify Razorpay payment.',
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * VERIFY RAZORPAY ORDER ID
+     * --------------------------------------------------------
+     */
+
+    if (razorpayPayment.order_id !== razorpay_order_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment order mismatch.',
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * VERIFY PAYMENT STATUS
+     * --------------------------------------------------------
+     */
+
+    if (razorpayPayment.status !== 'captured') {
+      return res.status(400).json({
+        success: false,
+        message: `Payment is not captured. Current status: ${razorpayPayment.status}.`,
+      });
+    }
+
+    /**
+     * --------------------------------------------------------
+     * VERIFY PAYMENT AMOUNT
+     * --------------------------------------------------------
+     */
+
+    if (Number(razorpayPayment.amount) !== Number(paymentAttempt.amount)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment amount does not match the payment attempt.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 3. START MONGODB TRANSACTION
+     * ==========================================================
+     */
+
+    const session = await mongoose.startSession();
+
+    let createdOrder = null;
+
+    try {
+      await session.withTransaction(async () => {
+        /**
+         * ------------------------------------------------------
+         * ADDRESS
+         * ------------------------------------------------------
+         */
+
+        const address = await AddressModel.findOne({
+          _id: addressId,
+          userId,
+        }).session(session);
+
+        if (!address) {
+          throw new Error('Selected delivery address was not found.');
+        }
+
+        /**
+         * ------------------------------------------------------
+         * PAYMENT ATTEMPT
+         * ------------------------------------------------------
+         */
+
+        const paymentAttemptInTransaction = await PaymentAttempt.findOne({
+          _id: paymentAttempt._id,
+          userId,
+        }).session(session);
+
+        if (!paymentAttemptInTransaction) {
+          throw new Error('Payment attempt not found.');
+        }
+
+        /**
+         * Prevent duplicate processing
+         */
+
+        if (
+          paymentAttemptInTransaction.status === 'PAID' &&
+          paymentAttemptInTransaction.orderId
+        ) {
+          throw new Error('Payment has already been processed.');
+        }
+
+        /**
+         * ------------------------------------------------------
+         * GET FROZEN CART SNAPSHOT
+         * ------------------------------------------------------
+         *
+         * We DO NOT use the current frontend cart
+         * for price calculation.
+         *
+         * PaymentAttempt contains the snapshot created
+         * when Razorpay order was created.
+         * ------------------------------------------------------
+         */
+
+        const snapshotItems = paymentAttemptInTransaction.cartItems;
+
+        if (!snapshotItems?.length) {
+          throw new Error('Payment attempt contains no order items.');
+        }
+
+        /**
+         * ------------------------------------------------------
+         * LOAD PRODUCTS
+         * ------------------------------------------------------
+         */
+
+        const productIds = snapshotItems.map((item) => item.productId);
+
+        const products = await Product.find({
+          _id: {
+            $in: productIds,
+          },
+
+          status: 'ACTIVE',
+        })
+          .populate('allowedBases')
+          .populate('allowedStraps')
+          .populate('allowedThumbs')
+          .session(session);
+
+        const productMap = new Map(
+          products.map((product) => [String(product._id), product]),
+        );
+
+        /**
+         * ------------------------------------------------------
+         * BUILD ORDER ITEMS
+         * ------------------------------------------------------
+         */
+
+        const orderItems = [];
+
+        const stockRequirements = [];
+
+        let subtotal = 0;
+
+        for (const snapshotItem of snapshotItems) {
+          const product = productMap.get(String(snapshotItem.productId));
+
+          if (!product) {
+            throw new Error(
+              `${snapshotItem.name || 'A product'} is no longer available.`,
+            );
+          }
+
+          const quantity = Number(snapshotItem.quantity);
+
+          if (!Number.isInteger(quantity) || quantity < 1) {
+            throw new Error(`Invalid quantity for ${product.name}.`);
+          }
+
+          /**
+           * IMPORTANT:
+           *
+           * Use the frozen price stored
+           * in PaymentAttempt.
+           *
+           * Do NOT recalculate the customer's
+           * paid amount from current product price.
+           */
+
+          const unitPrice = Number(snapshotItem.unitPrice);
+
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+            throw new Error(`Invalid price for ${product.name}.`);
+          }
+
+          /**
+           * --------------------------------------------------
+           * CHECK CURRENT STOCK
+           * --------------------------------------------------
+           */
+
+          const requirements = getRequiredStock(product, snapshotItem);
+
+          for (const requirement of requirements) {
+            if (requirement.available < requirement.required) {
+              throw new Error(requirement.message);
+            }
+          }
+
+          stockRequirements.push(...requirements);
+
+          /**
+           * --------------------------------------------------
+           * CALCULATE FROM FROZEN PRICE
+           * --------------------------------------------------
+           */
+
+          const lineTotal = unitPrice * quantity;
+
+          subtotal += lineTotal;
+
+          /**
+           * --------------------------------------------------
+           * CUSTOMIZABLE OPTIONS
+           * --------------------------------------------------
+           */
+
+          let base = null;
+          let strap = null;
+          let thumb = null;
+
+          if (product.productType === 'CUSTOMIZABLE') {
+            const baseRequirement = requirements.find(
+              (item) => item.kind === 'base',
+            );
+
+            const strapRequirement = requirements.find(
+              (item) => item.kind === 'strap',
+            );
+
+            const thumbRequirement = requirements.find(
+              (item) => item.kind === 'thumb',
+            );
+
+            if (!baseRequirement) {
+              throw new Error(
+                `Base inventory information is missing for ${product.name}.`,
+              );
+            }
+
+            if (!strapRequirement) {
+              throw new Error(
+                `Strap inventory information is missing for ${product.name}.`,
+              );
+            }
+
+            base = snapshotItem.base || null;
+
+            strap = snapshotItem.strap || null;
+
+            thumb = snapshotItem.thumb || null;
+          }
+
+          /**
+           * --------------------------------------------------
+           * CREATE ORDER ITEM SNAPSHOT
+           * --------------------------------------------------
+           */
+
+          orderItems.push({
+            productId: product._id,
+
+            productCode: snapshotItem.productCode || product.productCode,
+
+            name: snapshotItem.name || product.name,
+
+            image:
+              snapshotItem.image ||
+              snapshotItem.base?.image ||
+              snapshotItem.strap?.image ||
+              product.mainImage ||
+              '',
+
+            productType: snapshotItem.productType,
+
+            size: String(snapshotItem.size),
+
+            quantity,
+
+            unitPrice,
+
+            lineTotal: Number(snapshotItem.lineTotal),
+
+            variantId: snapshotItem.variantId || null,
+
+            base: base || snapshotItem.base || null,
+
+            strap: strap || snapshotItem.strap || null,
+
+            thumb: thumb || snapshotItem.thumb || null,
+          });
+        }
+
+        /**
+         * ======================================================
+         * PAYMENT AMOUNT CHECK
+         * ======================================================
+         */
+
+        const shippingCharge = 0;
+
+        const tax = 0;
+
+        const totalAmount = subtotal + shippingCharge + tax;
+
+        const expectedAmountPaise = Math.round(totalAmount * 100);
+
+        if (Number(razorpayPayment.amount) !== expectedAmountPaise) {
+          throw new Error('Payment amount does not match the order amount.');
+        }
+
+        /**
+         * ======================================================
+         * DEDUCT INVENTORY
+         * ======================================================
+         */
+
+        const inventoryEntries = [];
+
+        for (const requirement of stockRequirements) {
+          /**
+           * --------------------------------------------------
+           * STANDARD PRODUCT
+           * --------------------------------------------------
+           */
+
+          if (requirement.kind === 'standard') {
+            const result = await decrementStandardStock(
+              requirement.productId,
+              requirement.variantId,
+              requirement.size,
+              requirement.required,
+              session,
+            );
+
+            if (!result.success) {
+              throw new Error(
+                `Product size ${requirement.size} just went out of stock. Please review your cart.`,
+              );
+            }
+
+            inventoryEntries.push({
+              type: 'ORDER',
+
+              itemType: 'STANDARD',
+
+              productId: result.productId,
+
+              variantId: result.variantId,
+
+              quantity: result.quantity,
+
+              previousStock: result.previousStock,
+
+              newStock: result.newStock,
+
+              performedBy: userId,
+
+              reason: 'Stock deducted for paid customer order.',
+            });
+
+            continue;
+          }
+
+          /**
+           * --------------------------------------------------
+           * CUSTOMIZABLE PRODUCT
+           * --------------------------------------------------
+           */
+
+          let Model;
+
+          if (requirement.kind === 'base') {
+            Model = Base;
+          } else if (requirement.kind === 'strap') {
+            Model = Strap;
+          } else if (requirement.kind === 'thumb') {
+            Model = Thumb;
+          } else {
+            throw new Error('Invalid inventory requirement.');
+          }
+
+          const result = await decrementComponentStock(
+            Model,
+
+            requirement.componentId,
+
+            requirement.colorId,
+
+            requirement.variantId,
+
+            requirement.size,
+
+            requirement.required,
+
+            session,
+          );
+
+          if (!result.success) {
+            throw new Error(
+              `${requirement.colorName} ${requirement.kind} size ${requirement.size} just went out of stock. Please review your cart.`,
+            );
+          }
+
+          inventoryEntries.push({
+            type: 'ORDER',
+
+            itemType: requirement.kind.toUpperCase(),
+
+            componentId: result.componentId,
+
+            colorId: result.colorId,
+
+            variantId: result.variantId,
+
+            quantity: result.quantity,
+
+            previousStock: result.previousStock,
+
+            newStock: result.newStock,
+
+            performedBy: userId,
+
+            reason: 'Stock deducted for paid customer order.',
+          });
+        }
+
+        /**
+         * ======================================================
+         * CREATE FINAL ORDER
+         * ======================================================
+         */
+
+        const order = await Order.create(
+          [
+            {
+              orderNumber: makeOrderNumber(),
+
+              userId,
+
+              items: orderItems,
+
+              shippingAddress: {
+                name: address.name,
+
+                phone: address.phone,
+
+                addressLine1: address.addressLine1,
+
+                city: address.city,
+
+                state: address.state,
+
+                postalCode: address.postalCode,
+
+                landmark: address.landmark || '',
+
+                addressType: address.addressType || 'Home',
+
+                country: address.country || 'India',
+              },
+
+              subtotal,
+
+              shippingCharge,
+
+              tax,
+
+              totalAmount,
+
+              paymentMethod: 'ONLINE',
+
+              paymentStatus: 'PAID',
+
+              paymentProvider: 'RAZORPAY',
+
+              razorpayOrderId: razorpay_order_id,
+
+              razorpayPaymentId: razorpay_payment_id,
+
+              razorpaySignature: razorpay_signature,
+
+              paymentId: razorpay_payment_id,
+
+              paymentPaidAt: new Date(),
+
+              orderStatus: 'PLACED',
+            },
+          ],
+          {
+            session,
+          },
+        );
+
+        createdOrder = order[0];
+
+        /**
+         * ======================================================
+         * INVENTORY TRANSACTIONS
+         * ======================================================
+         */
+
+        const entriesWithOrder = inventoryEntries.map((entry) => ({
+          ...entry,
+
+          orderId: createdOrder._id,
+        }));
+
+        if (entriesWithOrder.length) {
+          await InventoryTransaction.insertMany(entriesWithOrder, {
+            session,
+          });
+        }
+
+        /**
+         * ======================================================
+         * CLEAR CART
+         * ======================================================
+         */
+
+        const cart = await Cart.findOne({
+          userId,
+        }).session(session);
+
+        if (cart) {
+          cart.items = [];
+
+          await cart.save({
+            session,
+          });
+        }
+
+        /**
+         * ======================================================
+         * USER ORDER HISTORY
+         * ======================================================
+         */
+
+        await UserModel.updateOne(
+          {
+            _id: userId,
+          },
+
+          {
+            $push: {
+              orderHistory: createdOrder._id,
+            },
+          },
+
+          {
+            session,
+          },
+        );
+
+        /**
+         * ======================================================
+         * MARK PAYMENT ATTEMPT AS PAID
+         * ======================================================
+         */
+
+        paymentAttemptInTransaction.status = 'PAID';
+
+        paymentAttemptInTransaction.razorpayPaymentId = razorpay_payment_id;
+
+        paymentAttemptInTransaction.razorpaySignature = razorpay_signature;
+
+        paymentAttemptInTransaction.orderId = createdOrder._id;
+
+        paymentAttemptInTransaction.paidAt = new Date();
+
+        await paymentAttemptInTransaction.save({
+          session,
+        });
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    /**
+     * ========================================================
+     * ADMIN NOTIFICATION
+     * ========================================================
+     */
+
+    if (createdOrder) {
+      try {
+        await notifyAdmins({
+          type: 'NEW_ORDER',
+
+          title: 'New Online Order Received',
+
+          message: `New order ${createdOrder.orderNumber} has been paid for ₹${createdOrder.totalAmount}.`,
+
+          orderId: createdOrder._id,
+
+          orderNumber: createdOrder.orderNumber,
+
+          data: {
+            totalAmount: createdOrder.totalAmount,
+
+            itemCount: createdOrder.items?.length || 0,
+
+            paymentMethod: 'ONLINE',
+
+            paymentProvider: 'RAZORPAY',
+          },
+        });
+      } catch (notificationError) {
+        console.error('Admin notification failed:', notificationError);
+      }
+    }
+
+    /**
+     * ========================================================
+     * ORDER CONFIRMATION EMAIL
+     * ========================================================
+     */
+
+    if (createdOrder && req.user?.email) {
+      try {
+        const emailSent = await sendEmailFun({
+          sendTo: req.user.email,
+
+          subject: `Order ${createdOrder.orderNumber} confirmed - Moochuu Footwear`,
+
+          text: `Your Moochuu Footwear order ${createdOrder.orderNumber} has been paid successfully. Total: ₹${createdOrder.totalAmount}.`,
+
+          html: orderConfirmationEmail(createdOrder),
+        });
+
+        if (!emailSent) {
+          console.warn(
+            `Order confirmation email could not be sent for ${createdOrder.orderNumber}`,
+          );
+        }
+      } catch (emailError) {
+        console.error('Online order confirmation email failed:', emailError);
+      }
+    }
+
+    /**
+     * ========================================================
+     * SUCCESS
+     * ========================================================
+     */
+
+    return res.status(200).json({
+      success: true,
+
+      message: 'Payment verified and order placed successfully.',
+
+      data: {
+        order: createdOrder,
+      },
+    });
+  } catch (error) {
+    console.error('Verify Razorpay payment error:', error);
+
+    const errorMessage = error?.message || '';
+
+    const transactionError =
+      errorMessage.includes('Transaction numbers are only allowed') ||
+      errorMessage.includes('transaction') ||
+      errorMessage.includes('replica set') ||
+      errorMessage.includes('NoSuchTransaction') ||
+      errorMessage.includes('TransientTransactionError') ||
+      errorMessage.includes('ConflictingOperationInProgress');
+
+    return res.status(transactionError ? 503 : 400).json({
+      success: false,
+
+      message: transactionError
+        ? 'MongoDB transactions are required for checkout. Please use MongoDB Atlas or run your local MongoDB as a replica set.'
+        : errorMessage || 'Unable to verify payment.',
     });
   }
 };
@@ -1566,24 +2852,44 @@ export const getOrderByIdController = async (req, res) => {
 };
 
 /**
- * GET ALL ORDERS
+ * ============================================================
+ * GET ALL ORDERS - ADMIN
+ * ============================================================
  *
- * Admin
+ * GET /api/orders/admin/all
  *
- * GET /api/order/all
+ * Only ADMIN / SUPER_ADMIN can access this endpoint.
+ *
+ * ============================================================
  */
+
 export const getAllOrdersController = async (req, res) => {
   try {
-    const orders = await Order.find()
-      .populate('userId', 'name email mobile')
+    /**
+     * ==========================================================
+     * FETCH ALL ORDERS
+     * ==========================================================
+     */
+
+    const orders = await Order.find({})
+      .populate('userId', 'name email phone')
       .sort({
         createdAt: -1,
       })
       .lean();
 
+    /**
+     * ==========================================================
+     * SUCCESS
+     * ==========================================================
+     */
+
     return res.status(200).json({
       success: true,
-      data: orders,
+
+      data: {
+        orders,
+      },
     });
   } catch (error) {
     console.error('Get all orders error:', error);
@@ -1633,22 +2939,49 @@ const allowedStatusTransitions = {
   CANCELLED: [],
 };
 
+/**
+ * ============================================================
+ * UPDATE ORDER STATUS - ADMIN
+ * ============================================================
+ *
+ * PATCH /api/orders/admin/:orderId/status
+ *
+ * Body:
+ * {
+ *   "status": "CONFIRMED"
+ * }
+ *
+ * ============================================================
+ */
+
 export const updateOrderStatusController = async (req, res) => {
-  let session;
   try {
     const { orderId } = req.params;
     const { status } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+    /**
+     * ==========================================================
+     * VALIDATE ORDER ID
+     * ==========================================================
+     */
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid order ID.',
       });
     }
 
-    // ---------------------------------------------------------
-    // Validate status
-    // ---------------------------------------------------------
+    /**
+     * ==========================================================
+     * VALIDATE STATUS
+     * ==========================================================
+     *
+     * Keep these values synchronized with the
+     * orderStatus enum in your Order model.
+     *
+     * ==========================================================
+     */
 
     const allowedStatuses = [
       'PLACED',
@@ -1659,20 +2992,20 @@ export const updateOrderStatusController = async (req, res) => {
       'CANCELLED',
     ];
 
-    if (!allowedStatuses.includes(status)) {
+    if (!status || !allowedStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid status "${status}". Allowed statuses are: ${allowedStatuses.join(
-          ', ',
-        )}`,
+        message: 'Invalid order status.',
       });
     }
 
-    // ---------------------------------------------------------
-    // Find order
-    // ---------------------------------------------------------
+    /**
+     * ==========================================================
+     * FIND ORDER
+     * ==========================================================
+     */
 
-    let order = await Order.findById(orderId);
+    const order = await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
@@ -1681,340 +3014,53 @@ export const updateOrderStatusController = async (req, res) => {
       });
     }
 
-    // ---------------------------------------------------------
-    // Nothing to change
-    // ---------------------------------------------------------
+    /**
+     * ==========================================================
+     * PREVENT UNNECESSARY UPDATE
+     * ==========================================================
+     */
 
     if (order.orderStatus === status) {
       return res.status(200).json({
         success: true,
-        message: `Order is already ${status}.`,
-        data: order,
+        message: 'Order status is already set to this value.',
+        data: {
+          order,
+        },
       });
     }
 
-    const currentStatus = order.orderStatus;
-
-    const allowedNextStatuses = allowedStatusTransitions[currentStatus] || [];
-
-    if (!allowedNextStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Order cannot be changed from ${currentStatus} to ${status}.`,
-      });
-    }
-
-    // ---------------------------------------------------------
-    // CANCEL ORDER
-    // ---------------------------------------------------------
-
-    if (status === 'CANCELLED') {
-      // Paid orders cannot be cancelled until refund system exists
-      if (order.paymentStatus === 'PAID') {
-        throw new Error(
-          'Paid orders cannot be cancelled until refund processing is implemented.',
-        );
-      }
-
-      let previousStatus = order.orderStatus;
-
-      session = await mongoose.startSession();
-
-      try {
-        await session.withTransaction(async () => {
-          // Always fetch fresh order inside transaction
-          const freshOrder = await Order.findById(orderId).session(session);
-
-          if (!freshOrder) {
-            throw new Error('Order not found.');
-          }
-
-          previousStatus = freshOrder.orderStatus;
-
-          if (freshOrder.paymentStatus === 'PAID') {
-            throw new Error(
-              'Paid orders cannot be cancelled until refund processing is implemented.',
-            );
-          }
-
-          // Prevent duplicate cancellation
-          if (freshOrder.orderStatus === 'CANCELLED') {
-            throw new Error('Order is already cancelled.');
-          }
-
-          // Prevent cancellation after delivery
-          if (freshOrder.orderStatus === 'DELIVERED') {
-            throw new Error('Delivered order cannot be cancelled.');
-          }
-
-          const inventoryEntries = [];
-
-          for (const item of freshOrder.items) {
-            const quantity = Number(item.quantity);
-
-            if (!Number.isInteger(quantity) || quantity <= 0) {
-              throw new Error(`Invalid quantity for order item: ${item.name}`);
-            }
-
-            // =====================================================
-            // STANDARD PRODUCT
-            // =====================================================
-
-            if (item.productType === 'STANDARD') {
-              const product = await Product.findById(item.productId).session(
-                session,
-              );
-
-              if (!product) {
-                throw new Error(
-                  `Product not found while restoring stock: ${item.name}`,
-                );
-              }
-
-              const variant = product.standardStock.id(item.variantId);
-
-              if (!variant) {
-                throw new Error(
-                  `Standard variant not found while restoring stock: ${item.name}`,
-                );
-              }
-
-              const previousStock = Number(variant.stockQuantity || 0);
-
-              variant.stockQuantity = previousStock + quantity;
-
-              await product.save({ session });
-
-              inventoryEntries.push({
-                type: 'CANCEL',
-                itemType: 'STANDARD',
-
-                productId: product._id,
-                variantId: variant._id,
-
-                quantity,
-                previousStock,
-                newStock: variant.stockQuantity,
-
-                performedBy: req.userId,
-
-                orderId: freshOrder._id,
-
-                reason: 'Stock restored after order cancellation.',
-              });
-
-              continue;
-            }
-
-            // =====================================================
-            // CUSTOMIZABLE PRODUCT
-            // =====================================================
-
-            const components = [
-              {
-                type: 'BASE',
-                model: Base,
-                option: item.base,
-              },
-              {
-                type: 'STRAP',
-                model: Strap,
-                option: item.strap,
-              },
-            ];
-
-            // Thumb is optional
-            if (item.thumb?.componentId) {
-              components.push({
-                type: 'THUMB',
-                model: Thumb,
-                option: item.thumb,
-              });
-            }
-
-            for (const component of components) {
-              const { componentId, colorId, variantId } =
-                component.option || {};
-
-              if (!componentId || !colorId || !variantId) {
-                throw new Error(
-                  `${component.type} inventory information is missing for ${item.name}.`,
-                );
-              }
-
-              const componentDoc = await component.model
-                .findOne({
-                  _id: componentId,
-                  'colors._id': colorId,
-                  'colors.variants._id': variantId,
-                })
-                .session(session);
-
-              if (!componentDoc) {
-                throw new Error(
-                  `${component.type} not found while restoring stock for ${item.name}.`,
-                );
-              }
-
-              const color = componentDoc.colors.id(colorId);
-
-              if (!color) {
-                throw new Error(
-                  `${component.type} color not found while restoring stock.`,
-                );
-              }
-
-              const variant = color.variants.id(variantId);
-
-              if (!variant) {
-                throw new Error(
-                  `${component.type} variant not found while restoring stock.`,
-                );
-              }
-
-              const previousStock = Number(variant.stockQuantity || 0);
-
-              variant.stockQuantity = previousStock + quantity;
-
-              await componentDoc.save({ session });
-
-              inventoryEntries.push({
-                type: 'CANCEL',
-                itemType: component.type,
-
-                componentId: componentDoc._id,
-                colorId: color._id,
-                variantId: variant._id,
-
-                quantity,
-                previousStock,
-                newStock: variant.stockQuantity,
-
-                performedBy: req.userId,
-
-                orderId: freshOrder._id,
-
-                reason: `Stock restored after order cancellation - ${component.type}.`,
-              });
-            }
-          }
-
-          // =====================================================
-          // INVENTORY AUDIT
-          // =====================================================
-
-          if (inventoryEntries.length > 0) {
-            await InventoryTransaction.create(inventoryEntries, {
-              session,
-              ordered: true,
-            });
-          }
-
-          // =====================================================
-          // UPDATE ORDER
-          // =====================================================
-
-          freshOrder.orderStatus = 'CANCELLED';
-          freshOrder.cancelledAt = new Date();
-
-          await freshOrder.save({ session });
-
-          // Update outer variable for response
-          order = freshOrder;
-        });
-      } finally {
-        await session.endSession();
-        session = null;
-      }
-
-      // Notification AFTER transaction
-      try {
-        await notifyAdmins({
-          type: 'ORDER_STATUS',
-
-          title: 'Order Cancelled',
-
-          message: `Order ${order.orderNumber} has been cancelled.`,
-
-          orderId: order._id,
-
-          orderNumber: order.orderNumber,
-
-          data: {
-            previousStatus,
-            status,
-          },
-        });
-      } catch (notificationError) {
-        console.error('Cancellation notification error:', notificationError);
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: 'Order cancelled successfully.',
-        data: order,
-      });
-    }
-    // ---------------------------------------------------------
-    // NORMAL STATUS UPDATE
-    // ---------------------------------------------------------
-
-    const previousStatus = order.orderStatus;
+    /**
+     * ==========================================================
+     * UPDATE STATUS
+     * ==========================================================
+     */
 
     order.orderStatus = status;
 
-    // Delivered date
-    if (status === 'DELIVERED') {
-      order.deliveredAt = new Date();
-    }
-
-    // If status is moved away from delivered
-    if (status !== 'DELIVERED') {
-      order.deliveredAt = null;
-    }
-
     await order.save();
 
-    console.log(`Order ${order.orderNumber}: ${previousStatus} → ${status}`);
-
-    // ---------------------------------------------------------
-    // Notification
-    // ---------------------------------------------------------
-
-    try {
-      await notifyAdmins({
-        type: 'ORDER_STATUS',
-
-        title: 'Order Status Updated',
-
-        message: `Order ${order.orderNumber} changed from ${previousStatus} to ${status}.`,
-
-        orderId: order._id,
-
-        orderNumber: order.orderNumber,
-
-        data: {
-          previousStatus,
-          status,
-        },
-      });
-    } catch (notificationError) {
-      console.error('Notification error:', notificationError);
-    }
+    /**
+     * ==========================================================
+     * SUCCESS
+     * ==========================================================
+     */
 
     return res.status(200).json({
       success: true,
 
       message: 'Order status updated successfully.',
 
-      data: order,
+      data: {
+        order,
+      },
     });
   } catch (error) {
-    console.error('UPDATE ORDER STATUS ERROR:', error);
+    console.error('Update order status error:', error);
 
-    return res.status(400).json({
+    return res.status(500).json({
       success: false,
-      message: error?.message || 'Failed to update order status.',
+      message: 'Unable to update order status.',
     });
   }
 };

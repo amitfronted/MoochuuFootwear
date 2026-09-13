@@ -74,14 +74,30 @@ const OrdersPage = () => {
       const response = await fetchAllOrders();
 
       if (response.success) {
-        setOrders(response.data || []);
+        const ordersData = response.data;
+
+        const ordersArray = Array.isArray(ordersData)
+          ? ordersData
+          : Array.isArray(ordersData?.orders)
+            ? ordersData.orders
+            : [];
+
+        setOrders(ordersArray);
       } else {
+        setOrders([]);
+
         toast.error(response.message || 'Failed to load orders');
       }
     } catch (error) {
-      console.error(error);
+      console.error('LOAD ORDERS ERROR:', error);
 
-      toast.error(error.response?.data?.message || 'Failed to load orders');
+      setOrders([]);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          'Failed to load orders',
+      );
     } finally {
       setLoading(false);
     }
