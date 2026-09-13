@@ -2113,6 +2113,17 @@ export const verifyRazorpayPaymentController = async (req, res) => {
       });
     }
 
+    // --------------------------------------------------------
+    // VERIFY PAYMENT ATTEMPT ADDRESS
+    // --------------------------------------------------------
+
+    if (String(paymentAttempt.addressId) !== String(addressId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment address does not match the original checkout.',
+      });
+    }
+
     /**
      * --------------------------------------------------------
      * PAYMENT ALREADY PROCESSED
@@ -2177,6 +2188,21 @@ export const verifyRazorpayPaymentController = async (req, res) => {
       });
     }
 
+    // --------------------------------------------------------
+    // VERIFY PAYMENT CURRENCY
+    // --------------------------------------------------------
+
+    if (
+      razorpayPayment.currency &&
+      paymentAttempt.currency &&
+      razorpayPayment.currency !== paymentAttempt.currency
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment currency does not match the payment attempt.',
+      });
+    }
+
     /**
      * ==========================================================
      * 3. START MONGODB TRANSACTION
@@ -2196,7 +2222,7 @@ export const verifyRazorpayPaymentController = async (req, res) => {
          */
 
         const address = await AddressModel.findOne({
-          _id: addressId,
+          _id: paymentAttemptInTransaction.addressId,
           userId,
         }).session(session);
 
