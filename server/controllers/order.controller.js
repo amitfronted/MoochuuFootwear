@@ -2057,12 +2057,7 @@ export const verifyRazorpayPaymentController = async (req, res) => {
     });
   }
 
-  if (
-    !razorpay_order_id ||
-    !razorpay_payment_id ||
-    !razorpay_signature ||
-    !addressId
-  ) {
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
     return res.status(400).json({
       success: false,
       message: 'Payment verification data is incomplete.',
@@ -2202,21 +2197,6 @@ export const verifyRazorpayPaymentController = async (req, res) => {
       await session.withTransaction(async () => {
         /**
          * ------------------------------------------------------
-         * ADDRESS
-         * ------------------------------------------------------
-         */
-
-        const address = await AddressModel.findOne({
-          _id: paymentAttemptInTransaction.addressId,
-          userId,
-        }).session(session);
-
-        if (!address) {
-          throw new Error('Selected delivery address was not found.');
-        }
-
-        /**
-         * ------------------------------------------------------
          * PAYMENT ATTEMPT
          * ------------------------------------------------------
          */
@@ -2239,6 +2219,21 @@ export const verifyRazorpayPaymentController = async (req, res) => {
           paymentAttemptInTransaction.orderId
         ) {
           throw new Error('Payment has already been processed.');
+        }
+
+        /**
+         * ------------------------------------------------------
+         * ADDRESS
+         * ------------------------------------------------------
+         */
+
+        const address = await AddressModel.findOne({
+          _id: paymentAttemptInTransaction.addressId,
+          userId,
+        }).session(session);
+
+        if (!address) {
+          throw new Error('Selected delivery address was not found.');
         }
 
         /**
