@@ -2047,12 +2047,8 @@ export const createRazorpayOrderController = async (req, res) => {
 export const verifyRazorpayPaymentController = async (req, res) => {
   const userId = req.userId;
 
-  const {
-    razorpay_order_id,
-    razorpay_payment_id,
-    razorpay_signature,
-    addressId,
-  } = req.body;
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+    req.body;
 
   if (!userId) {
     return res.status(401).json({
@@ -2110,17 +2106,6 @@ export const verifyRazorpayPaymentController = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Payment attempt not found.',
-      });
-    }
-
-    // --------------------------------------------------------
-    // VERIFY PAYMENT ATTEMPT ADDRESS
-    // --------------------------------------------------------
-
-    if (String(paymentAttempt.addressId) !== String(addressId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment address does not match the original checkout.',
       });
     }
 
