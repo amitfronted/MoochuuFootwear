@@ -5,7 +5,7 @@ import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
-import { FiCheckCircle, FiMapPin, FiPackage } from 'react-icons/fi';
+import { FiCheckCircle, FiMapPin, FiPackage, FiTruck } from 'react-icons/fi';
 
 import { useOrders } from '../context/OrderContext';
 
@@ -339,6 +339,19 @@ const OrderContent = () => {
                 <span>{money(order.subtotal)}</span>
               </div>
 
+              {Number(order.couponDiscount) > 0 && (
+                <div className="flex justify-between">
+                  <span>
+                    Coupon Discount
+                    {order.couponCode ? ` (${order.couponCode})` : ''}
+                  </span>
+
+                  <span className="text-green-600">
+                    -{money(order.couponDiscount)}
+                  </span>
+                </div>
+              )}
+
               <div className="flex justify-between">
                 <span>Shipping</span>
 
@@ -427,6 +440,52 @@ const OrderContent = () => {
             </div>
           </div>
         </div>
+
+        {/* SHIPPING TRACKING */}
+
+        {(order.shipping?.courierName ||
+          order.shipping?.trackingNumber ||
+          order.shipping?.trackingUrl) && (
+          <div className="rounded-md bg-white p-6 shadow-sm mt-4">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+              <FiTruck />
+              Shipment Tracking
+            </h2>
+
+            <div className="mt-4 space-y-2 text-sm text-gray-700">
+              {order.shipping?.courierName && (
+                <p>
+                  <strong>Courier:</strong> {order.shipping.courierName}
+                </p>
+              )}
+
+              {order.shipping?.trackingNumber && (
+                <p>
+                  <strong>Tracking Number:</strong>{' '}
+                  {order.shipping.trackingNumber}
+                </p>
+              )}
+
+              {order.shipping?.shippedAt && (
+                <p>
+                  <strong>Shipped:</strong>{' '}
+                  {new Date(order.shipping.shippedAt).toLocaleString('en-IN')}
+                </p>
+              )}
+
+              {order.shipping?.trackingUrl && (
+                <a
+                  href={order.shipping.trackingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-flex rounded-md bg-black px-4 py-2 font-semibold text-white hover:bg-gray-800"
+                >
+                  Track Shipment
+                </a>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* -------------------------------- */}
         {/* ACTION BUTTONS */}

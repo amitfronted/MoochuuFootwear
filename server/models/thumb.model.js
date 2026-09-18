@@ -2,7 +2,13 @@ import mongoose from 'mongoose';
 
 const thumbVariantSchema = new mongoose.Schema({
   size: { type: Number, required: true },
-  stockQuantity: { type: Number, required: true, default: 0 },
+  stockQuantity: { type: Number, required: true, default: 0, min: 0 },
+  reservedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+  },
 });
 
 const thumbColorSchema = new mongoose.Schema({

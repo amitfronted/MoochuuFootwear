@@ -8,8 +8,8 @@ const escapeHtml = (value = '') =>
 
 const money = (value) =>
   `₹${Number(value || 0).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   })}`;
 
 export const orderConfirmationEmail = (order) => {
@@ -42,6 +42,8 @@ export const orderConfirmationEmail = (order) => {
     .join('');
 
   const address = order.shippingAddress;
+  const couponDiscount = Number(order.couponDiscount || 0);
+  const shippingCharge = Number(order.shippingCharge || 0);
 
   return `
 <!doctype html>
@@ -76,8 +78,20 @@ export const orderConfirmationEmail = (order) => {
 
       <div style="margin-top:20px;text-align:right;line-height:1.8;">
         <div>Subtotal: ${money(order.subtotal)}</div>
-        <div>Shipping: ${money(order.shippingCharge)}</div>
-        <div>Tax: ${money(order.tax)}</div>
+        ${
+          couponDiscount > 0
+            ? `
+        <div style="color:#16803c;">
+          <span>Coupon Discount${
+            order.couponCode ? ` (${escapeHtml(order.couponCode)})` : ''
+          }:</span>
+          <strong>-${money(couponDiscount)}</strong>
+        </div>
+        `
+            : ''
+        }
+        <div> Shipping: ${shippingCharge > 0 ? money(shippingCharge) : 'FREE'}</div>
+        <div>GST (18%): ${money(order.tax)}</div>
         <div style="font-size:18px;font-weight:bold;">Total: ${money(order.totalAmount)}</div>
       </div>
 

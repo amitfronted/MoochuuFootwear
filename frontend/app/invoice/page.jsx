@@ -8,8 +8,8 @@ import { useOrders } from '../context/OrderContext';
 
 const money = (value) =>
   `₹${Number(value || 0).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   })}`;
 
 const formatDate = (value) => {
@@ -237,6 +237,18 @@ function InvoiceContent() {
             <span>Subtotal</span>
             <span>{money(order.subtotal)}</span>
           </div>
+          {Number(order.couponDiscount) > 0 && (
+            <div className="flex justify-between py-1.5">
+              <span>
+                Coupon Discount
+                {order.couponCode ? ` (${order.couponCode})` : ''}
+              </span>
+
+              <span className="text-green-600">
+                -{money(order.couponDiscount)}
+              </span>
+            </div>
+          )}
           <div className="flex justify-between py-1.5">
             <span>Shipping</span>
             <span>

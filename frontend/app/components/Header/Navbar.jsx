@@ -3,7 +3,7 @@ import Link from 'next/link';
 const Navbar = () => {
   const links = [
     {
-      name: 'Customize',
+      name: 'Home',
       href: '/',
     },
     {

@@ -1,17 +1,54 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
+
 import { useOrders } from '../../context/OrderContext';
 import Loader from '../../components/Loader';
+import ConfirmModal from '../../components/ConfirmModal';
+import ReturnModal from '../../components/ReturnModal';
 
-import { FiPackage, FiChevronRight, FiMapPin } from 'react-icons/fi';
+import {
+  FiPackage,
+  FiChevronRight,
+  FiMapPin,
+  FiXCircle,
+  FiRotateCcw,
+  FiTruck,
+} from 'react-icons/fi';
 
 const money = (value) =>
   `₹${Number(value || 0).toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
+const getReturnDeadline = (deliveredAt) => {
+  if (!deliveredAt) return null;
+
+  const deadline = new Date(deliveredAt);
+
+  if (Number.isNaN(deadline.getTime())) {
+    return null;
+  }
+
+  deadline.setDate(deadline.getDate() + 7);
+
+  return deadline;
+};
+
+const formatReturnDeadline = (deliveredAt) => {
+  const deadline = getReturnDeadline(deliveredAt);
+
+  if (!deadline) return null;
+
+  return deadline.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+};
 
 /**
  * Safely get an image from an option.
@@ -312,8 +349,35 @@ const OrderItem = ({ item }) => {
 /**
  * Order card
  */
-const OrderCard = ({ order }) => {
+const OrderCard = ({
+  order,
+  onCancelOrder,
+  cancellingOrderId,
+  onReturnOrder,
+  returningOrderId,
+}) => {
   const items = Array.isArray(order.items) ? order.items : [];
+  const canCancel = ['PLACED', 'CONFIRMED', 'PROCESSING'].includes(
+    order.orderStatus,
+  );
+  const isCancelling = cancellingOrderId === order._id;
+
+  const returnDeadline = getReturnDeadline(order.deliveredAt);
+  const returnDeadlineText = formatReturnDeadline(order.deliveredAt);
+
+  const isReturnExpired =
+    order.orderStatus === 'DELIVERED' &&
+    order.returnStatus === 'NONE' &&
+    returnDeadline &&
+    new Date() > returnDeadline;
+
+  const canReturn =
+    order.orderStatus === 'DELIVERED' &&
+    order.returnStatus === 'NONE' &&
+    Boolean(order.deliveredAt) &&
+    !isReturnExpired;
+
+  const isReturning = returningOrderId === order._id;
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
@@ -322,7 +386,7 @@ const OrderCard = ({ order }) => {
       {/* ================================= */}
 
       <div className="border-b border-gray-200 p-5 sm:p-6">
-        <div className="grid gap-5 md:grid-cols-[1.2fr_1fr_auto] md:items-center">
+        <div className="grid gap-5 md:grid-cols-[1fr_1.5fr_auto] md:items-center">
           {/* Order Number */}
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">
@@ -339,13 +403,50 @@ const OrderCard = ({ order }) => {
           </div>
 
           {/* Status */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 justify-center items-center">
             <StatusBadge status={order.orderStatus} />
 
             <PaymentBadge
               method={order.paymentMethod}
               status={order.paymentStatus}
             />
+            <div>
+              {order.orderStatus === 'DELIVERED' &&
+                order.returnStatus === 'NONE' &&
+                order.deliveredAt && (
+                  <div className="text-xs text-gray-500">
+                    {isReturnExpired ? (
+                      <span className="font-medium text-red-600">
+                        Return window expired
+                      </span>
+                    ) : (
+                      <span>
+                        Return available until{' '}
+                        <strong className="text-gray-700">
+                          {returnDeadlineText}
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+                )}
+            </div>
+            {order.returnStatus && order.returnStatus !== 'NONE' && (
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  order.returnStatus === 'REQUESTED'
+                    ? 'bg-amber-100 text-amber-700'
+                    : order.returnStatus === 'APPROVED'
+                      ? 'bg-blue-100 text-blue-700'
+                      : order.returnStatus === 'COMPLETED'
+                        ? 'bg-green-100 text-green-700'
+                        : order.returnStatus === 'REJECTED'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                RETURN {order.returnStatus}
+              </span>
+            )}
           </div>
 
           {/* Total */}
@@ -382,6 +483,57 @@ const OrderCard = ({ order }) => {
         )}
       </div>
 
+      {(order.shipping?.courierName ||
+        order.shipping?.trackingNumber ||
+        order.shipping?.trackingUrl) && (
+        <div className="mx-4 mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:mx-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <FiTruck className="mt-0.5 text-lg text-gray-700" />
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Shipment</p>
+
+                <div className="mt-1 space-y-1 text-sm text-gray-600">
+                  {order.shipping?.courierName && (
+                    <p>
+                      Courier:{' '}
+                      <strong className="text-gray-800">
+                        {order.shipping.courierName}
+                      </strong>
+                    </p>
+                  )}
+
+                  {order.shipping?.trackingNumber && (
+                    <p>
+                      Tracking No:{' '}
+                      <strong className="text-gray-800">
+                        {order.shipping.trackingNumber}
+                      </strong>
+                    </p>
+                  )}
+
+                  {order.shipping?.shippedAt && (
+                    <p>Shipped: {formatOrderDate(order.shipping.shippedAt)}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {order.shipping?.trackingUrl && (
+              <a
+                href={order.shipping.trackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center rounded-md border border-gray-900 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-gray-900 hover:text-white"
+              >
+                Track Shipment
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ================================= */}
       {/* ORDER FOOTER */}
       {/* ================================= */}
@@ -416,6 +568,62 @@ const OrderCard = ({ order }) => {
           >
             Invoice
           </Link>
+          {canReturn && (
+            <button
+              type="button"
+              disabled={isReturning}
+              onClick={() => onReturnOrder(order)}
+              className="
+                inline-flex
+                items-center
+                gap-2
+                rounded-md
+                border
+                border-orange-200
+                px-4
+                py-2
+                text-sm
+                font-semibold
+                text-orange-600
+                transition
+                hover:bg-orange-50
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+              "
+            >
+              <FiRotateCcw />
+
+              {isReturning ? 'Submitting...' : 'Return Order'}
+            </button>
+          )}
+          {canCancel && (
+            <button
+              type="button"
+              disabled={isCancelling}
+              onClick={() => onCancelOrder(order)}
+              className="
+                  inline-flex
+                  items-center
+                  gap-2
+                  rounded-md
+                  border
+                  border-red-200
+                  px-4
+                  py-2
+                  text-sm
+                  font-semibold
+                  text-red-600
+                  transition
+                  hover:bg-red-50
+                  disabled:cursor-not-allowed
+                  disabled:opacity-50
+                "
+            >
+              <FiXCircle />
+
+              {isCancelling ? 'Cancelling...' : 'Cancel Order'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -426,7 +634,85 @@ const OrderCard = ({ order }) => {
  * My Orders Page
  */
 const MyOrdersPage = () => {
-  const { orders, loading, getMyOrders } = useOrders();
+  const { orders, loading, getMyOrders, cancelOrder, requestReturn } =
+    useOrders();
+  const [cancellingOrderId, setCancellingOrderId] = useState(null);
+  const [orderToCancel, setOrderToCancel] = useState(null);
+  const [returningOrderId, setReturningOrderId] = useState(null);
+  const [orderToReturn, setOrderToReturn] = useState(null);
+  const [returnReason, setReturnReason] = useState('');
+  const [returnComment, setReturnComment] = useState('');
+
+  const handleCancelOrder = (order) => {
+    if (!order?._id) return;
+
+    setOrderToCancel(order);
+  };
+
+  const confirmCancelOrder = async () => {
+    if (!orderToCancel?._id) return;
+
+    try {
+      setCancellingOrderId(orderToCancel._id);
+
+      const response = await cancelOrder(orderToCancel._id);
+
+      if (response.success) {
+        toast.success('Order cancelled successfully.');
+        setOrderToCancel(null);
+      } else {
+        toast.error(response.message || 'Unable to cancel order.');
+      }
+    } catch (error) {
+      console.error('CANCEL ORDER ERROR:', error);
+
+      toast.error(error?.message || 'Unable to cancel order.');
+    } finally {
+      setCancellingOrderId(null);
+    }
+  };
+
+  const handleReturnOrder = (order) => {
+    if (!order?._id) return;
+
+    setOrderToReturn(order);
+    setReturnReason('');
+    setReturnComment('');
+  };
+
+  const submitReturnRequest = async () => {
+    if (!orderToReturn?._id) return;
+
+    if (!returnReason) {
+      toast.error('Please select a return reason.');
+      return;
+    }
+
+    try {
+      setReturningOrderId(orderToReturn._id);
+
+      const response = await requestReturn(orderToReturn._id, {
+        reason: returnReason,
+        comment: returnComment.trim(),
+      });
+
+      if (response.success) {
+        toast.success('Return request submitted successfully.');
+
+        setOrderToReturn(null);
+        setReturnReason('');
+        setReturnComment('');
+      } else {
+        toast.error(response.message || 'Unable to submit return request.');
+      }
+    } catch (error) {
+      console.error('RETURN ORDER ERROR:', error);
+
+      toast.error(error?.message || 'Unable to submit return request.');
+    } finally {
+      setReturningOrderId(null);
+    }
+  };
 
   useEffect(() => {
     getMyOrders();
@@ -435,80 +721,121 @@ const MyOrdersPage = () => {
   const orderList = Array.isArray(orders) ? orders : [];
 
   return (
-    <div className="w-full">
-      {/* ================================= */}
-      {/* PAGE HEADER */}
-      {/* ================================= */}
+    <>
+      <div className="w-full">
+        {/* ================================= */}
+        {/* PAGE HEADER */}
+        {/* ================================= */}
 
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-200 p-5 sm:p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
-                My Orders
-              </h1>
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-200 p-5 sm:p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
+                  My Orders
+                </h1>
 
-              <p className="mt-1 text-sm text-gray-500">
-                {orderList.length} order
-                {orderList.length === 1 ? '' : 's'}
+                <p className="mt-1 text-sm text-gray-500">
+                  {orderList.length} order
+                  {orderList.length === 1 ? '' : 's'}
+                </p>
+              </div>
+
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
+                <FiPackage className="text-lg text-gray-700" />
+              </div>
+            </div>
+          </div>
+
+          {/* ================================= */}
+          {/* LOADING */}
+          {/* ================================= */}
+
+          {loading ? (
+            <div className="flex justify-center py-20">
+              <Loader />
+            </div>
+          ) : !orderList.length ? (
+            /* ================================= */
+            /* EMPTY */
+            /* ================================= */
+
+            <div className="p-12 text-center sm:p-16">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+                <FiPackage className="text-2xl text-gray-400" />
+              </div>
+
+              <h2 className="mt-5 text-lg font-bold text-gray-900">
+                No orders yet
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
+                Your placed orders will appear here.
               </p>
+
+              <Link
+                href="/shop"
+                className="mt-6 inline-flex rounded-md bg-yellow px-6 py-3 font-semibold text-black transition hover:opacity-90"
+              >
+                Start Shopping
+              </Link>
             </div>
+          ) : (
+            /* ================================= */
+            /* ORDERS */
+            /* ================================= */
 
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
-              <FiPackage className="text-lg text-gray-700" />
-            </div>
-          </div>
-        </div>
-
-        {/* ================================= */}
-        {/* LOADING */}
-        {/* ================================= */}
-
-        {loading ? (
-          <div className="flex justify-center py-20">
-            <Loader />
-          </div>
-        ) : !orderList.length ? (
-          /* ================================= */
-          /* EMPTY */
-          /* ================================= */
-
-          <div className="p-12 text-center sm:p-16">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
-              <FiPackage className="text-2xl text-gray-400" />
-            </div>
-
-            <h2 className="mt-5 text-lg font-bold text-gray-900">
-              No orders yet
-            </h2>
-
-            <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
-              Your placed orders will appear here.
-            </p>
-
-            <Link
-              href="/shop"
-              className="mt-6 inline-flex rounded-md bg-yellow px-6 py-3 font-semibold text-black transition hover:opacity-90"
+            <div
+              id="yourOrder"
+              className="space-y-4 m-3 p-2 sm:m-5 sm:p-3 overflow-y-scroll min-h-120 max-h-120"
             >
-              Start Shopping
-            </Link>
-          </div>
-        ) : (
-          /* ================================= */
-          /* ORDERS */
-          /* ================================= */
-
-          <div
-            id="yourOrder"
-            className="space-y-4 m-3 p-2 sm:m-5 sm:p-3 overflow-y-scroll min-h-120 max-h-120"
-          >
-            {orderList.map((order) => (
-              <OrderCard key={order._id} order={order} />
-            ))}
-          </div>
-        )}
+              {orderList.map((order) => (
+                <OrderCard
+                  key={order._id}
+                  order={order}
+                  onCancelOrder={handleCancelOrder}
+                  cancellingOrderId={cancellingOrderId}
+                  onReturnOrder={handleReturnOrder}
+                  returningOrderId={returningOrderId}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+      <ConfirmModal
+        open={Boolean(orderToCancel)}
+        title="Cancel Order?"
+        message={
+          orderToCancel
+            ? `Are you sure you want to cancel order #${orderToCancel.orderNumber}? This action cannot be undone.`
+            : ''
+        }
+        confirmText="Cancel Order"
+        cancelText="Keep Order"
+        loading={cancellingOrderId === orderToCancel?._id}
+        onCancel={() => {
+          if (!cancellingOrderId) {
+            setOrderToCancel(null);
+          }
+        }}
+        onConfirm={confirmCancelOrder}
+      />
+      <ReturnModal
+        open={Boolean(orderToReturn)}
+        onClose={() => {
+          if (!returningOrderId) {
+            setOrderToReturn(null);
+          }
+        }}
+        onSubmit={submitReturnRequest}
+        reason={returnReason}
+        setReason={setReturnReason}
+        comment={returnComment}
+        setComment={setReturnComment}
+        submitting={Boolean(returningOrderId)}
+      />
+    </>
   );
 };
 

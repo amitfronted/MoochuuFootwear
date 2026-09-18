@@ -49,7 +49,18 @@ const paymentAttemptSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    couponCode: {
+      type: String,
+      default: '',
+      trim: true,
+      uppercase: true,
+    },
 
+    couponDiscount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     shippingCharge: {
       type: Number,
       default: 0,
@@ -91,6 +102,28 @@ const paymentAttemptSchema = new mongoose.Schema(
       index: true,
     },
 
+    reservationStatus: {
+      type: String,
+      enum: ['NONE', 'RESERVED', 'RELEASED', 'COMMITTED'],
+      default: 'NONE',
+      index: true,
+    },
+
+    stockReservations: {
+      type: [mongoose.Schema.Types.Mixed],
+      default: [],
+    },
+
+    reservationReleasedAt: {
+      type: Date,
+      default: null,
+    },
+
+    reservationCommittedAt: {
+      type: Date,
+      default: null,
+    },
+
     paidAt: {
       type: Date,
       default: null,
@@ -106,5 +139,11 @@ const paymentAttemptSchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+paymentAttemptSchema.index({
+  reservationStatus: 1,
+  status: 1,
+  expiresAt: 1,
+});
 
 export default mongoose.model('PaymentAttempt', paymentAttemptSchema);

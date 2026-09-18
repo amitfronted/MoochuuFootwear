@@ -108,6 +108,101 @@ const shippingAddressSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const returnRequestSchema = new mongoose.Schema(
+  {
+    reason: {
+      type: String,
+      enum: [
+        'WRONG_PRODUCT',
+        'DAMAGED_PRODUCT',
+        'DEFECTIVE_PRODUCT',
+        'SIZE_ISSUE',
+        'QUALITY_ISSUE',
+        'OTHER',
+      ],
+      default: '',
+    },
+
+    comment: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
+    },
+
+    requestedAt: {
+      type: Date,
+      default: null,
+    },
+
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+
+    rejectedAt: {
+      type: Date,
+      default: null,
+    },
+
+    receivedAt: {
+      type: Date,
+      default: null,
+    },
+
+    conditionComment: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
+    },
+
+    completedAt: {
+      type: Date,
+      default: null,
+    },
+
+    rejectionReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
+    },
+  },
+  { _id: false },
+);
+
+const shippingDetailsSchema = new mongoose.Schema(
+  {
+    courierName: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 100,
+    },
+
+    trackingNumber: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 100,
+    },
+
+    trackingUrl: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
+    },
+
+    shippedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false },
+);
+
 const orderSchema = new mongoose.Schema(
   {
     orderNumber: {
@@ -134,9 +229,25 @@ const orderSchema = new mongoose.Schema(
       type: shippingAddressSchema,
       required: true,
     },
+    shipping: {
+      type: shippingDetailsSchema,
+      default: () => ({}),
+    },
     subtotal: {
       type: Number,
       required: true,
+      min: 0,
+    },
+    couponCode: {
+      type: String,
+      default: '',
+      trim: true,
+      uppercase: true,
+    },
+
+    couponDiscount: {
+      type: Number,
+      default: 0,
       min: 0,
     },
     shippingCharge: {
@@ -204,6 +315,25 @@ const orderSchema = new mongoose.Schema(
     refundId: {
       type: String,
       default: '',
+      index: true,
+    },
+    refundAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    refundStatus: {
+      type: String,
+      enum: ['NONE', 'PENDING', 'PROCESSED', 'FAILED'],
+      default: 'NONE',
+      index: true,
+    },
+
+    refundFailureReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
     },
     refundedAt: {
       type: Date,
@@ -221,6 +351,17 @@ const orderSchema = new mongoose.Schema(
       ],
       default: 'PLACED',
       index: true,
+    },
+    returnStatus: {
+      type: String,
+      enum: ['NONE', 'REQUESTED', 'APPROVED', 'REJECTED', 'COMPLETED'],
+      default: 'NONE',
+      index: true,
+    },
+
+    returnRequest: {
+      type: returnRequestSchema,
+      default: null,
     },
     cancelledAt: {
       type: Date,

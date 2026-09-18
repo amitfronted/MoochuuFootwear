@@ -18,7 +18,7 @@ const VideoSection = () => {
           First customized Footwear
         </h1>
         <h3 className="font-light text-lg md:text-3xl lg:text-5xl text-white">
-          Moochuu India
+          Moo Chuu India
         </h3>
       </div>
     </section>

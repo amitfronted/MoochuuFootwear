@@ -126,6 +126,12 @@ export const fetchAllOrders = async () => {
   return res.data;
 };
 
+export const updateOrderShipping = async (orderId, payload) => {
+  const res = await api.patch(`/orders/admin/${orderId}/shipping`, payload);
+
+  return res.data;
+};
+
 export const updateOrderStatus = async (orderId, status) => {
   const res = await api.patch(`/orders/admin/${orderId}/status`, { status });
 
@@ -173,5 +179,72 @@ export const fetchInventoryHistory = async (params = {}) => {
     params,
   });
 
+  return res.data;
+};
+
+export const markCodPaymentAsPaid = async (orderId) => {
+  const response = await api.patch(`/orders/admin/${orderId}/cod-paid`);
+
+  return response.data;
+};
+
+// *--- RETURN MANAGEMENT API ---*
+
+export const fetchReturnRequests = async () => {
+  const res = await api.get('/orders/admin/returns');
+  return res.data;
+};
+
+export const approveOrderReturn = async (orderId) => {
+  const res = await api.patch(`/orders/admin/${orderId}/return/approve`);
+
+  return res.data;
+};
+
+export const rejectOrderReturn = async (orderId, rejectionReason) => {
+  const res = await api.patch(`/orders/admin/${orderId}/return/reject`, {
+    rejectionReason,
+  });
+
+  return res.data;
+};
+
+export const completeOrderReturn = async (orderId) => {
+  const res = await api.patch(`/orders/admin/${orderId}/return/complete`);
+
+  return res.data;
+};
+
+// =====================================================
+// COUPON API
+// =====================================================
+
+// Create coupon
+export const createCoupon = async (data) => {
+  const res = await api.post('/coupons/admin', data);
+  return res.data;
+};
+
+// Get all coupons
+export const fetchCoupons = async () => {
+  const res = await api.get('/coupons/admin');
+  return res.data;
+};
+
+// Get single coupon
+export const fetchCouponById = async (couponId) => {
+  const res = await api.get(`/coupons/admin/${couponId}`);
+  return res.data;
+};
+
+// Update coupon
+export const updateCoupon = async (couponId, data) => {
+  const res = await api.patch(`/coupons/admin/${couponId}`, data);
+  return res.data;
+};
+
+// Delete coupon
+export const deleteCoupon = async (couponId) => {
+  const res = await api.delete(`/coupons/admin/${couponId}`);
   return res.data;
 };

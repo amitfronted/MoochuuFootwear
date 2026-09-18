@@ -42,8 +42,19 @@ const productSchema = new mongoose.Schema(
     // Standard Product Fallback Stock (used only if productType === 'STANDARD')
     standardStock: [
       {
-        size: { type: String, trim: true }, // Changed from Number to String
-        stockQuantity: { type: Number, default: 0 },
+        size: { type: String, trim: true },
+
+        stockQuantity: {
+          type: Number,
+          default: 0,
+          min: 0,
+        },
+
+        reservedQuantity: {
+          type: Number,
+          default: 0,
+          min: 0,
+        },
       },
     ],
   },

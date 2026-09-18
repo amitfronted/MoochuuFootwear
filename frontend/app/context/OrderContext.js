@@ -10,7 +10,7 @@ export const OrderProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
 
   const createOrder = useCallback(
-    async ({ addressId, paymentMethod = 'COD' }) => {
+    async ({ addressId, paymentMethod = 'COD', couponCode = '' }) => {
       try {
         setLoading(true);
 
@@ -24,6 +24,7 @@ export const OrderProvider = ({ children }) => {
           {
             addressId,
             paymentMethod,
+            couponCode,
           },
           {
             headers: {
@@ -52,27 +53,44 @@ export const OrderProvider = ({ children }) => {
     [],
   );
 
-  const createRazorpayOrder = useCallback(async ({ addressId }) => {
-    try {
-      setLoading(true);
+  const createRazorpayOrder = useCallback(
+    async ({ addressId, couponCode = '' }) => {
+      try {
+        setLoading(true);
+        // One key represents one Razorpay checkout attempt.
+        // A customer retry automatically gets a new key.
+        const idempotencyKey = `razorpay-${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2, 15)}`;
 
-      const response = await api.post('/orders/razorpay', {
-        addressId,
-      });
+        const response = await api.post(
+          '/orders/razorpay',
+          {
+            addressId,
+            couponCode,
+          },
+          {
+            headers: {
+              'Idempotency-Key': idempotencyKey,
+            },
+          },
+        );
 
-      return response.data;
-    } catch (error) {
-      return {
-        success: false,
-        message:
-          error.response?.data?.message ||
-          error.message ||
-          'Unable to create online payment order.',
-      };
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        return response.data;
+      } catch (error) {
+        return {
+          success: false,
+          message:
+            error.response?.data?.message ||
+            error.message ||
+            'Unable to create online payment order.',
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
 
   const verifyRazorpayPayment = useCallback(
     async ({
@@ -147,6 +165,69 @@ export const OrderProvider = ({ children }) => {
     }
   }, []);
 
+  const cancelOrder = useCallback(async (orderId) => {
+    try {
+      setLoading(true);
+
+      const response = await api.patch(`/orders/${orderId}/cancel`);
+
+      if (response.data?.success && response.data?.data?.order) {
+        const cancelledOrder = response.data.data.order;
+
+        setOrders((prev) =>
+          prev.map((order) =>
+            order._id === cancelledOrder._id ? cancelledOrder : order,
+          ),
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      return {
+        success: false,
+        message:
+          error.response?.data?.message ||
+          error.message ||
+          'Unable to cancel order.',
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const requestReturn = useCallback(async (orderId, { reason, comment }) => {
+    try {
+      setLoading(true);
+
+      const response = await api.post(`/orders/${orderId}/return`, {
+        reason,
+        comment,
+      });
+
+      if (response.data?.success && response.data?.data?.order) {
+        const returnedOrder = response.data.data.order;
+
+        setOrders((prev) =>
+          prev.map((order) =>
+            order._id === returnedOrder._id ? returnedOrder : order,
+          ),
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      return {
+        success: false,
+        message:
+          error.response?.data?.message ||
+          error.message ||
+          'Unable to submit return request.',
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   return (
     <OrderContext.Provider
       value={{
@@ -157,6 +238,8 @@ export const OrderProvider = ({ children }) => {
         verifyRazorpayPayment,
         getMyOrders,
         getOrder,
+        cancelOrder,
+        requestReturn,
       }}
     >
       {children}

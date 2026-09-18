@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import OrderDetailsModal from '@/app/components/OrderDetailsModal';
 
-import { fetchAllOrders, updateOrderStatus } from '../../lib/api';
+import {
+  fetchAllOrders,
+  updateOrderStatus,
+  updateOrderShipping,
+  markCodPaymentAsPaid,
+} from '../../lib/api';
 
 const STATUS_OPTIONS = [
   'PLACED',
@@ -38,18 +44,6 @@ const formatDate = (date) => {
   });
 };
 
-const formatDateTime = (date) => {
-  if (!date) return '-';
-
-  return new Date(date).toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
 const OrdersPage = () => {
   const [orders, setOrders] = useState([]);
 
@@ -58,6 +52,8 @@ const OrdersPage = () => {
   const [search, setSearch] = useState('');
 
   const [statusFilter, setStatusFilter] = useState('');
+
+  const [paymentFilter, setPaymentFilter] = useState('');
 
   const [selectedOrder, setSelectedOrder] = useState(null);
 
@@ -116,9 +112,7 @@ const OrdersPage = () => {
 
     return orders.filter((order) => {
       const customerName = order.userId?.name || '';
-
       const customerEmail = order.userId?.email || '';
-
       const orderNumber = order.orderNumber || '';
 
       const matchesSearch =
@@ -129,9 +123,12 @@ const OrdersPage = () => {
 
       const matchesStatus = !statusFilter || order.orderStatus === statusFilter;
 
-      return matchesSearch && matchesStatus;
+      const matchesPayment =
+        !paymentFilter || order.paymentMethod === paymentFilter;
+
+      return matchesSearch && matchesStatus && matchesPayment;
     });
-  }, [orders, search, statusFilter]);
+  }, [orders, search, statusFilter, paymentFilter]);
 
   // -----------------------------------------
   // STATUS UPDATE
@@ -151,12 +148,97 @@ const OrdersPage = () => {
       if (response.success) {
         toast.success('Order status updated');
 
+        const updatedOrder = response.data?.order || response.data;
+
+        if (selectedOrder?._id === orderId && updatedOrder) {
+          setSelectedOrder(updatedOrder);
+        }
+
         await loadOrders();
       }
     } catch (error) {
       console.error('STATUS ERROR:', error.response?.data);
 
       toast.error(error.response?.data?.message || 'Failed to update status');
+    }
+  };
+
+  const handleShippingUpdate = async (orderId, shippingDetails) => {
+    if (!orderId) return;
+
+    try {
+      setUpdatingOrderId(orderId);
+
+      const response = await updateOrderShipping(orderId, shippingDetails);
+
+      if (response.success) {
+        toast.success('Shipping details updated');
+
+        const updatedOrder = response.data?.order || response.data;
+
+        if (selectedOrder?._id === orderId && updatedOrder) {
+          setSelectedOrder(updatedOrder);
+        }
+
+        await loadOrders();
+      } else {
+        toast.error(response.message || 'Failed to update shipping details');
+      }
+    } catch (error) {
+      console.error('SHIPPING UPDATE ERROR:', error.response?.data || error);
+
+      toast.error(
+        error.response?.data?.message || 'Failed to update shipping details',
+      );
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  // -----------------------------------------
+  // MARK COD PAYMENT AS PAID
+  // -----------------------------------------
+
+  const handleMarkCodPaid = async (orderId) => {
+    if (!orderId) return;
+
+    try {
+      setUpdatingOrderId(orderId);
+
+      const response = await markCodPaymentAsPaid(orderId);
+
+      if (response.success) {
+        toast.success('COD payment marked as paid');
+
+        await loadOrders();
+
+        // Close/update selected order modal state if open
+        if (selectedOrder?._id === orderId) {
+          setSelectedOrder((current) =>
+            current
+              ? {
+                  ...current,
+                  paymentStatus: 'PAID',
+                  paymentPaidAt:
+                    response.data?.order?.paymentPaidAt ||
+                    new Date().toISOString(),
+                }
+              : current,
+          );
+        }
+      } else {
+        toast.error(response.message || 'Failed to mark COD as paid');
+      }
+    } catch (error) {
+      console.error('MARK COD PAID ERROR:', error.response?.data);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          'Failed to mark COD payment as paid',
+      );
+    } finally {
+      setUpdatingOrderId(null);
     }
   };
   // -----------------------------------------
@@ -262,55 +344,56 @@ const OrdersPage = () => {
   // -----------------------------------------
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      {/* HEADER */}
+    <>
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* HEADER */}
 
-      <div>
-        <h1 className="text-2xl font-bold">Orders</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Orders</h1>
 
-        <p className="text-sm text-slate-500">
-          Manage customer orders and update order status.
-        </p>
-      </div>
-
-      {/* SUMMARY */}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white border rounded-xl p-4">
-          <p className="text-sm text-slate-500">Total Orders</p>
-
-          <p className="text-2xl font-bold mt-1">{totalOrders}</p>
+          <p className="text-sm text-slate-500">
+            Manage customer orders and update order status.
+          </p>
         </div>
 
-        <div className="bg-white border rounded-xl p-4">
-          <p className="text-sm text-slate-500">New Orders</p>
+        {/* SUMMARY */}
 
-          <p className="text-2xl font-bold mt-1">{pendingOrders}</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white border rounded-xl p-4">
+            <p className="text-sm text-slate-500">Total Orders</p>
+
+            <p className="text-2xl font-bold mt-1">{totalOrders}</p>
+          </div>
+
+          <div className="bg-white border rounded-xl p-4">
+            <p className="text-sm text-slate-500">New Orders</p>
+
+            <p className="text-2xl font-bold mt-1">{pendingOrders}</p>
+          </div>
+
+          <div className="bg-white border rounded-xl p-4">
+            <p className="text-sm text-slate-500">Processing</p>
+
+            <p className="text-2xl font-bold mt-1">{processingOrders}</p>
+          </div>
+
+          <div className="bg-white border rounded-xl p-4">
+            <p className="text-sm text-slate-500">Delivered</p>
+
+            <p className="text-2xl font-bold mt-1">{deliveredOrders}</p>
+          </div>
         </div>
 
-        <div className="bg-white border rounded-xl p-4">
-          <p className="text-sm text-slate-500">Processing</p>
-
-          <p className="text-2xl font-bold mt-1">{processingOrders}</p>
-        </div>
+        {/* FILTER */}
 
         <div className="bg-white border rounded-xl p-4">
-          <p className="text-sm text-slate-500">Delivered</p>
-
-          <p className="text-2xl font-bold mt-1">{deliveredOrders}</p>
-        </div>
-      </div>
-
-      {/* FILTER */}
-
-      <div className="bg-white border rounded-xl p-4">
-        <div className="flex flex-col md:flex-row gap-3">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search order number, customer or email..."
-            className="
+          <div className="flex flex-col md:flex-row gap-3">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search order number, customer or email..."
+              className="
               flex-1
               border
               rounded-lg
@@ -319,143 +402,159 @@ const OrdersPage = () => {
               outline-none
               focus:border-black
             "
-          />
+            />
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="
               border
               rounded-lg
               px-3
               py-2
               min-w-48
             "
-          >
-            <option value="">All Status</option>
+            >
+              <option value="">All Status</option>
 
-            {STATUS_OPTIONS.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
 
-          <button
-            type="button"
-            onClick={loadOrders}
-            className="
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              className="
+              border
+              rounded-lg
+              px-3
+              py-2
+              min-w-40
+            "
+            >
+              <option value="">All Payments</option>
+              <option value="COD">COD</option>
+              <option value="ONLINE">ONLINE</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={loadOrders}
+              className="
               border
               px-4
               py-2
               rounded-lg
               hover:bg-slate-50
             "
-          >
-            Refresh
-          </button>
+            >
+              Refresh
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* ORDER TABLE */}
+        {/* ORDER TABLE */}
 
-      <div className="bg-white border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr
-                className="
+        <div className="bg-white border rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr
+                  className="
                   border-b
                   bg-slate-50
                   text-left
                   text-sm
                 "
-              >
-                <th className="px-4 py-4">Order</th>
+                >
+                  <th className="px-4 py-4">Order</th>
 
-                <th className="px-4 py-4">Customer</th>
+                  <th className="px-4 py-4">Customer</th>
 
-                <th className="px-4 py-4">Items</th>
+                  <th className="px-4 py-4">Items</th>
 
-                <th className="px-4 py-4">Payment</th>
+                  <th className="px-4 py-4">Payment</th>
 
-                <th className="px-4 py-4">Amount</th>
+                  <th className="px-4 py-4">Amount</th>
 
-                <th className="px-4 py-4">Status</th>
+                  <th className="px-4 py-4">Status</th>
 
-                <th className="px-4 py-4">Date</th>
+                  <th className="px-4 py-4">Date</th>
 
-                <th className="px-4 py-4">Action</th>
-              </tr>
-            </thead>
-
-            <tbody className="text-sm divide-y">
-              {loading ? (
-                <tr>
-                  <td colSpan="8" className="p-10 text-center">
-                    Loading orders...
-                  </td>
+                  <th className="px-4 py-4">Action</th>
                 </tr>
-              ) : filteredOrders.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan="8"
-                    className="
+              </thead>
+
+              <tbody className="text-sm divide-y">
+                {loading ? (
+                  <tr>
+                    <td colSpan="8" className="p-10 text-center">
+                      Loading orders...
+                    </td>
+                  </tr>
+                ) : filteredOrders.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan="8"
+                      className="
                       p-10
                       text-center
                       text-slate-500
                     "
-                  >
-                    No orders found.
-                  </td>
-                </tr>
-              ) : (
-                filteredOrders.map((order) => (
-                  <tr
-                    key={order._id}
-                    className="
+                    >
+                      No orders found.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredOrders.map((order) => (
+                    <tr
+                      key={order._id}
+                      className="
                         hover:bg-slate-50
                       "
-                  >
-                    {/* ORDER */}
+                    >
+                      {/* ORDER */}
 
-                    <td className="px-4 py-4">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedOrder(order)}
-                        className="
+                      <td className="px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(order)}
+                          className="
                             font-semibold
                             text-blue-600
                             hover:underline
                           "
-                      >
-                        #{order.orderNumber}
-                      </button>
-                    </td>
+                        >
+                          #{order.orderNumber}
+                        </button>
+                      </td>
 
-                    {/* CUSTOMER */}
+                      {/* CUSTOMER */}
 
-                    <td className="px-4 py-4">
-                      <div className="font-medium">
-                        {order.userId?.name || 'Guest'}
-                      </div>
+                      <td className="px-4 py-4">
+                        <div className="font-medium">
+                          {order.userId?.name || 'Guest'}
+                        </div>
 
-                      <div className="text-xs text-slate-500">
-                        {order.userId?.email || '-'}
-                      </div>
-                    </td>
+                        <div className="text-xs text-slate-500">
+                          {order.userId?.email || '-'}
+                        </div>
+                      </td>
 
-                    {/* ITEMS */}
+                      {/* ITEMS */}
 
-                    <td className="px-4 py-4">{order.items?.length || 0}</td>
+                      <td className="px-4 py-4">{order.items?.length || 0}</td>
 
-                    {/* PAYMENT */}
+                      {/* PAYMENT */}
 
-                    <td className="px-4 py-4">
-                      <div>{order.paymentMethod}</div>
+                      <td className="px-4 py-4">
+                        <div>{order.paymentMethod}</div>
 
-                      <span
-                        className={`
+                        <span
+                          className={`
                             text-xs
                             font-medium
                             ${
@@ -464,418 +563,112 @@ const OrdersPage = () => {
                                 : 'text-yellow-600'
                             }
                           `}
-                      >
-                        {order.paymentStatus}
-                      </span>
-                    </td>
+                        >
+                          {order.paymentStatus}
+                        </span>
 
-                    {/* AMOUNT */}
+                        {/* MARK COD AS PAID */}
+                        {order.paymentMethod === 'COD' &&
+                          order.paymentStatus === 'PENDING' &&
+                          order.orderStatus === 'DELIVERED' && (
+                            <button
+                              type="button"
+                              disabled={updatingOrderId === order._id}
+                              onClick={() => handleMarkCodPaid(order._id)}
+                              className="
+                                  mt-2
+                                  block
+                                  rounded-lg
+                                  border
+                                  border-green-600
+                                  px-2
+                                  py-1
+                                  text-xs
+                                  font-semibold
+                                  text-green-700
+                                  hover:bg-green-50
+                                  disabled:opacity-50
+                                  disabled:cursor-not-allowed
+                                "
+                            >
+                              {updatingOrderId === order._id
+                                ? 'Updating...'
+                                : 'Mark COD as Paid'}
+                            </button>
+                          )}
+                      </td>
 
-                    <td className="px-4 py-4 font-semibold">
-                      ₹{Number(order.totalAmount || 0).toLocaleString('en-IN')}
-                    </td>
+                      {/* AMOUNT */}
 
-                    {/* STATUS */}
+                      <td className="px-4 py-4 font-semibold">
+                        ₹
+                        {Number(order.totalAmount || 0).toLocaleString('en-IN')}
+                      </td>
 
-                    <td className="px-4 py-4">
-                      <select
-                        value={order.orderStatus}
-                        onChange={(e) =>
-                          handleStatusChange(order._id, e.target.value)
-                        }
-                      >
-                        <option value="PLACED">Placed</option>
+                      {/* STATUS */}
 
-                        <option value="CONFIRMED">Confirmed</option>
+                      <td className="px-4 py-4">
+                        <select
+                          value={order.orderStatus}
+                          onChange={(e) =>
+                            handleStatusChange(order._id, e.target.value)
+                          }
+                        >
+                          <option value="PLACED">Placed</option>
 
-                        <option value="PROCESSING">Processing</option>
+                          <option value="CONFIRMED">Confirmed</option>
 
-                        <option value="SHIPPED">Shipped</option>
+                          <option value="PROCESSING">Processing</option>
 
-                        <option value="DELIVERED">Delivered</option>
+                          <option value="SHIPPED">Shipped</option>
 
-                        <option value="CANCELLED">Cancelled</option>
-                      </select>
-                    </td>
+                          <option value="DELIVERED">Delivered</option>
 
-                    {/* DATE */}
+                          <option value="CANCELLED">Cancelled</option>
+                        </select>
+                      </td>
 
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      {formatDate(order.createdAt)}
-                    </td>
+                      {/* DATE */}
 
-                    {/* ACTION */}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        {formatDate(order.createdAt)}
+                      </td>
 
-                    <td className="px-4 py-4">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedOrder(order)}
-                        className="
+                      {/* ACTION */}
+
+                      <td className="px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(order)}
+                          className="
                             border
                             px-3
                             py-1.5
                             rounded-lg
                             hover:bg-slate-100
                           "
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ================================= */}
-      {/* ORDER DETAILS MODAL */}
-      {/* ================================= */}
-
-      {selectedOrder && (
-        <div
-          className="
-            fixed
-            inset-0
-            z-50
-            bg-black/40
-            flex
-            justify-center
-            items-start
-            p-4
-            md:p-8
-            overflow-y-auto
-          "
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              setSelectedOrder(null);
-            }
-          }}
-        >
-          <div
-            className="
-              bg-white
-              rounded-2xl
-              w-full
-              max-w-4xl
-              shadow-xl
-              overflow-hidden
-            "
-          >
-            {/* MODAL HEADER */}
-
-            <div
-              className="
-                flex
-                justify-between
-                items-center
-                border-b
-                px-5
-                py-4
-              "
-            >
-              <div>
-                <h2 className="text-xl font-bold">
-                  Order #{selectedOrder.orderNumber}
-                </h2>
-
-                <p className="text-xs text-slate-500 mt-1">
-                  {formatDateTime(selectedOrder.createdAt)}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => printInvoice(selectedOrder)}
-                  className="rounded-lg border px-3 py-2 text-sm font-semibold hover:bg-slate-100"
-                >
-                  Print Invoice
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedOrder(null)}
-                  className="
-                    w-9
-                    h-9
-                    rounded-full
-                    border
-                    text-xl
-                    hover:bg-slate-100
-                  "
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div className="p-5 space-y-6">
-              {/* STATUS */}
-
-              <div className="border rounded-xl p-4">
-                <h3 className="font-bold mb-3">Order Status</h3>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <select
-                    value={selectedOrder.orderStatus}
-                    disabled={
-                      updatingOrderId === selectedOrder._id ||
-                      selectedOrder.orderStatus === 'CANCELLED'
-                    }
-                    onChange={(e) =>
-                      handleStatusChange(selectedOrder._id, e.target.value)
-                    }
-                    className="
-                      border
-                      rounded-lg
-                      px-3
-                      py-2
-                      flex-1
-                    "
-                  >
-                    {STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-
-                  {updatingOrderId === selectedOrder._id && (
-                    <div className="flex items-center text-sm text-slate-500">
-                      Updating...
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* CUSTOMER + ADDRESS */}
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="border rounded-xl p-4">
-                  <h3 className="font-bold mb-3">Customer</h3>
-
-                  <div className="space-y-1 text-sm">
-                    <p>
-                      <b>Name:</b> {selectedOrder.userId?.name || '-'}
-                    </p>
-
-                    <p>
-                      <b>Email:</b> {selectedOrder.userId?.email || '-'}
-                    </p>
-
-                    <p>
-                      <b>Mobile:</b> {selectedOrder.userId?.mobile || '-'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="border rounded-xl p-4">
-                  <h3 className="font-bold mb-3">Shipping Address</h3>
-
-                  <div className="text-sm text-slate-700 space-y-1">
-                    <p>{selectedOrder.shippingAddress?.name}</p>
-
-                    <p>{selectedOrder.shippingAddress?.phone}</p>
-
-                    <p>{selectedOrder.shippingAddress?.addressLine1}</p>
-
-                    <p>
-                      {selectedOrder.shippingAddress?.city},{' '}
-                      {selectedOrder.shippingAddress?.state}
-                    </p>
-
-                    <p>{selectedOrder.shippingAddress?.postalCode}</p>
-
-                    {selectedOrder.shippingAddress?.landmark && (
-                      <p>Landmark: {selectedOrder.shippingAddress.landmark}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* ITEMS */}
-
-              <div className="border rounded-xl overflow-hidden">
-                <div className="px-4 py-3 border-b">
-                  <h3 className="font-bold">Order Items</h3>
-                </div>
-
-                <div className="divide-y">
-                  {selectedOrder.items?.map((item) => (
-                    <div
-                      key={item._id}
-                      className="
-                          p-4
-                          flex
-                          flex-col
-                          md:flex-row
-                          gap-4
-                        "
-                    >
-                      <img
-                        src={item.image || '/placeholder.png'}
-                        alt={item.name}
-                        className="
-                            w-20
-                            h-20
-                            rounded-lg
-                            border
-                            object-contain
-                            bg-slate-50
-                          "
-                      />
-
-                      <div className="flex-1">
-                        <h4 className="font-semibold">{item.name}</h4>
-
-                        <p className="text-xs text-slate-500">
-                          Code: {item.productCode}
-                        </p>
-
-                        <div className="flex flex-wrap gap-4 text-sm mt-2">
-                          <span>
-                            Size: <b>{item.size}</b>
-                          </span>
-
-                          <span>
-                            Qty: <b>{item.quantity}</b>
-                          </span>
-
-                          <span>
-                            Price: ₹
-                            {Number(item.unitPrice || 0).toLocaleString(
-                              'en-IN',
-                            )}
-                          </span>
-                        </div>
-
-                        {/* CUSTOMIZATION */}
-
-                        {item.productType === 'CUSTOMIZABLE' && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {item.base && (
-                              <span className="px-2 py-1 bg-slate-100 rounded text-xs">
-                                Sole: {item.base.colorName}
-                              </span>
-                            )}
-
-                            {item.strap && (
-                              <span className="px-2 py-1 bg-slate-100 rounded text-xs">
-                                Strap: {item.strap.colorName}
-                              </span>
-                            )}
-
-                            {item.thumb && (
-                              <span className="px-2 py-1 bg-slate-100 rounded text-xs">
-                                Thumb: {item.thumb.colorName}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="font-bold">
-                        ₹{Number(item.lineTotal || 0).toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* PAYMENT + TOTAL */}
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="border rounded-xl p-4">
-                  <h3 className="font-bold mb-3">Payment</h3>
-
-                  <div className="space-y-2 text-sm">
-                    <p>
-                      Method: <b>{selectedOrder.paymentMethod}</b>
-                    </p>
-
-                    <p>
-                      Status: <b>{selectedOrder.paymentStatus}</b>
-                    </p>
-
-                    {selectedOrder.paymentId && (
-                      <p>Payment ID: {selectedOrder.paymentId}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="border rounded-xl p-4">
-                  <h3 className="font-bold mb-3">Order Summary</h3>
-
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Subtotal</span>
-
-                      <span>
-                        ₹
-                        {Number(selectedOrder.subtotal || 0).toLocaleString(
-                          'en-IN',
-                        )}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span>Shipping</span>
-
-                      <span>
-                        ₹
-                        {Number(
-                          selectedOrder.shippingCharge || 0,
-                        ).toLocaleString('en-IN')}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span>Tax</span>
-
-                      <span>
-                        ₹
-                        {Number(selectedOrder.tax || 0).toLocaleString('en-IN')}
-                      </span>
-                    </div>
-
-                    <div className="border-t pt-2 flex justify-between font-bold text-base">
-                      <span>Total</span>
-
-                      <span>
-                        ₹
-                        {Number(selectedOrder.totalAmount || 0).toLocaleString(
-                          'en-IN',
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* TIMESTAMPS */}
-
-              {(selectedOrder.deliveredAt || selectedOrder.cancelledAt) && (
-                <div className="border rounded-xl p-4 text-sm">
-                  {selectedOrder.deliveredAt && (
-                    <p>
-                      Delivered: {formatDateTime(selectedOrder.deliveredAt)}
-                    </p>
-                  )}
-
-                  {selectedOrder.cancelledAt && (
-                    <p className="text-red-600">
-                      Cancelled: {formatDateTime(selectedOrder.cancelledAt)}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+      <OrderDetailsModal
+        order={selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        onStatusChange={handleStatusChange}
+        onMarkCodPaid={handleMarkCodPaid}
+        onShippingUpdate={handleShippingUpdate}
+        updatingOrderId={updatingOrderId}
+        onPrintInvoice={printInvoice}
+      />
+    </>
   );
 };
 

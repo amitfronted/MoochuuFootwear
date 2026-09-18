@@ -14,11 +14,14 @@ import EmptyAddressBox from '../components/EmptyAddressBox';
 import Loader from '../components/Loader';
 import MenuButton from '../components/Buttons/MenuButton';
 import { useAuth } from '../context/AuthContext';
+import { calculateShippingCharge } from '@/utilis/shipping';
+import { calculateTax } from '@/utilis/tax';
+import { validateCoupon } from '../lib/api';
 
 const money = (value) =>
   `₹${Number(value || 0).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   })}`;
 
 const Checkout = () => {
@@ -44,9 +47,21 @@ const Checkout = () => {
   const [paymentMethod, setPaymentMethod] = useState('COD');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
-  const shippingCharge = 0;
-  const tax = 0;
-  const total = Number(subtotal || 0) + shippingCharge + tax;
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
+  const discountedSubtotal = Math.max(
+    Number(subtotal || 0) - Number(couponDiscount || 0),
+    0,
+  );
+
+  const shippingCharge = calculateShippingCharge(discountedSubtotal);
+  const tax = calculateTax(discountedSubtotal);
+
+  const total = discountedSubtotal + shippingCharge + tax;
 
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
@@ -107,6 +122,7 @@ const Checkout = () => {
       // 2. Create Razorpay order on our server
       const result = await createRazorpayOrder({
         addressId: selectedAddress,
+        couponCode: appliedCoupon?.code || '',
       });
 
       if (!result?.success || !result?.data?.razorpayOrderId) {
@@ -287,6 +303,7 @@ const Checkout = () => {
     const result = await createOrder({
       addressId: selectedAddress,
       paymentMethod,
+      couponCode: appliedCoupon?.code || '',
     });
 
     if (!result?.success) {
@@ -305,6 +322,51 @@ const Checkout = () => {
       router.push(`/order-success?orderId=${orderId}`);
     } else {
       router.push('/my-account/my-orders');
+    }
+  };
+
+  const handleApplyCoupon = async () => {
+    const code = couponCode.trim();
+
+    if (!code) {
+      setCouponError('Please enter a coupon code.');
+      return;
+    }
+
+    try {
+      setCouponLoading(true);
+      setCouponError('');
+
+      const response = await validateCoupon({
+        code,
+        subtotal,
+      });
+
+      if (!response?.success) {
+        setAppliedCoupon(null);
+        setCouponDiscount(0);
+        setCouponError(response?.message || 'Unable to apply coupon.');
+        return;
+      }
+
+      const discount = Number(
+        response?.data?.discount ?? response?.data?.couponDiscount ?? 0,
+      );
+
+      setAppliedCoupon(response?.data?.coupon || null);
+      setCouponDiscount(discount);
+      setCouponError('');
+    } catch (error) {
+      setAppliedCoupon(null);
+      setCouponDiscount(0);
+
+      setCouponError(
+        error.response?.data?.message ||
+          error.message ||
+          'Unable to apply coupon.',
+      );
+    } finally {
+      setCouponLoading(false);
     }
   };
 
@@ -539,7 +601,7 @@ const Checkout = () => {
                       const standardImage = item.image;
                       const baseImage = item.base?.image;
                       const strapImage = item.strap?.image;
-
+                      const thumbImage = item.thumb?.image;
                       return (
                         <div
                           key={item._id}
@@ -571,6 +633,15 @@ const Checkout = () => {
                                   sizes="64px"
                                   className="object-cover"
                                 />
+                                {item.thumb?.image && (
+                                  <Image
+                                    src={thumbImage}
+                                    alt={item.name}
+                                    fill
+                                    sizes="64px"
+                                    className="object-cover"
+                                  />
+                                )}
                               </>
                             )}
                           </div>
@@ -611,6 +682,15 @@ const Checkout = () => {
                       <span className="font-semibold">{money(subtotal)}</span>
                     </div>
 
+                    {couponDiscount > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span>Coupon Discount</span>
+                        <span className="text-green-600">
+                          -₹{Number(couponDiscount).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="flex justify-between">
                       <span className="text-gray-500">Shipping</span>
                       <span className="font-semibold">
@@ -619,8 +699,69 @@ const Checkout = () => {
                     </div>
 
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Tax</span>
+                      <span className="text-gray-500">GST (18%)</span>
                       <span className="font-semibold">{money(tax)}</span>
+                    </div>
+
+                    <div className="mb-6">
+                      <label
+                        htmlFor="couponCode"
+                        className="mb-2 block text-sm font-medium"
+                      >
+                        Coupon Code
+                      </label>
+
+                      <div className="flex gap-2">
+                        <input
+                          id="couponCode"
+                          type="text"
+                          value={couponCode}
+                          onChange={(e) => {
+                            setCouponCode(e.target.value.toUpperCase());
+                            setCouponError('');
+                          }}
+                          placeholder="Enter coupon code"
+                          disabled={couponLoading || !!appliedCoupon}
+                          className="flex-1 rounded-md border px-3 py-2 text-sm outline-none"
+                        />
+
+                        {appliedCoupon ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAppliedCoupon(null);
+                              setCouponDiscount(0);
+                              setCouponCode('');
+                              setCouponError('');
+                            }}
+                            className="rounded-md border px-4 py-2 text-sm"
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleApplyCoupon}
+                            disabled={couponLoading || !couponCode.trim()}
+                            className="rounded-md px-4 py-2 text-sm"
+                          >
+                            {couponLoading ? 'Applying...' : 'Apply'}
+                          </button>
+                        )}
+                      </div>
+
+                      {couponError && (
+                        <p className="mt-2 text-sm text-red-600">
+                          {couponError}
+                        </p>
+                      )}
+
+                      {appliedCoupon && (
+                        <p className="mt-2 text-sm text-green-600">
+                          Coupon "{appliedCoupon.code || couponCode}" applied
+                          successfully.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex justify-between border-t border-gray-200 pt-4 text-base">

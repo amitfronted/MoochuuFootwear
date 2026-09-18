@@ -24,6 +24,8 @@ const CartItem = ({ item }) => {
 
   const strapImage = item.strap?.image || '/placeholder.png';
 
+  const thumbImage = item.thumb?.image || '/placeholder.png';
+
   /* =========================================
      PRODUCT TYPE
   ========================================= */
@@ -197,6 +199,16 @@ const CartItem = ({ item }) => {
             {item.strap?.image && (
               <Image
                 src={strapImage}
+                alt={item.strap?.colorName || item.name}
+                fill
+                sizes="112px"
+                className="object-cover"
+              />
+            )}
+
+            {item.thumb?.image && (
+              <Image
+                src={thumbImage}
                 alt={item.strap?.colorName || item.name}
                 fill
                 sizes="112px"

@@ -14,10 +14,25 @@ import AddressModel from '../models/addresh.model.js';
 import UserModel from '../models/user.model.js';
 import InventoryTransaction from '../models/inventoryTransaction.model.js';
 import IdempotencyKey from '../models/idempotency.model.js';
+import Coupon from '../models/coupon.model.js';
 
 import sendEmailFun from '../config/sendEmail.js';
 import { orderConfirmationEmail } from '../utils/orderConfirmationTemplate.js';
 import { notifyAdmins } from '../utils/createNotification.js';
+
+import { createRazorpayRefund } from '../utils/razorpayRefund.js';
+import { calculateShippingCharge } from '../utils/shipping.js';
+import { calculateTax } from '../utils/tax.js';
+import {
+  normalizeCouponCode,
+  calculateCouponDiscount,
+  incrementCouponUsage,
+} from '../utils/coupon.js';
+import {
+  reserveStock,
+  releaseStockReservation,
+  commitStockReservation,
+} from '../utils/stockReservation.js';
 
 /**
  * Generate unique order number
@@ -121,7 +136,9 @@ const getRequiredStock = (product, cartItem) => {
       variantId: variant._id,
       size: String(variant.size),
       required: quantity,
-      available: Number(variant.stockQuantity),
+      available:
+        Number(variant.stockQuantity || 0) -
+        Number(variant.reservedQuantity || 0),
       message: `Only ${Number(
         variant.stockQuantity,
       )} item(s) of ${product.name} are available in size ${cartItem.size}.`,
@@ -208,7 +225,9 @@ const getRequiredStock = (product, cartItem) => {
     image: base.image || '',
     size: String(baseVariant.size),
     required: quantity,
-    available: Number(baseVariant.stockQuantity),
+    available:
+      Number(baseVariant.stockQuantity || 0) -
+      Number(baseVariant.reservedQuantity || 0),
     message: `Only ${Number(
       baseVariant.stockQuantity,
     )} ${base.colorName} sole item(s) are available for size ${cartItem.size}.`,
@@ -226,7 +245,9 @@ const getRequiredStock = (product, cartItem) => {
     image: strap.image || '',
     size: String(strapVariant.size),
     required: quantity,
-    available: Number(strapVariant.stockQuantity),
+    available:
+      Number(strapVariant.stockQuantity || 0) -
+      Number(strapVariant.reservedQuantity || 0),
     message: `Only ${Number(
       strapVariant.stockQuantity,
     )} ${strap.colorName} strap item(s) are available for size ${cartItem.size}.`,
@@ -259,7 +280,9 @@ const getRequiredStock = (product, cartItem) => {
       image: thumb.image || '',
       size: String(thumbVariant.size),
       required: quantity,
-      available: Number(thumbVariant.stockQuantity),
+      available:
+        Number(thumbVariant.stockQuantity || 0) -
+        Number(thumbVariant.reservedQuantity || 0),
       message: `Only ${Number(
         thumbVariant.stockQuantity,
       )} ${thumb.colorName} thumb item(s) are available for size ${cartItem.size}.`,
@@ -286,6 +309,8 @@ const decrementComponentStock = async (
   quantity,
   session,
 ) => {
+  // Reservation-aware lookup: reserved stock belongs to an active online
+  // checkout and must not be available to a new COD order.
   const component = await Model.findOne({
     _id: componentId,
 
@@ -297,10 +322,6 @@ const decrementComponentStock = async (
           $elemMatch: {
             _id: variantId,
             size: String(size),
-
-            stockQuantity: {
-              $gte: quantity,
-            },
           },
         },
       },
@@ -323,8 +344,12 @@ const decrementComponentStock = async (
   }
 
   const previousStock = Number(variant.stockQuantity || 0);
+  const reservedStock = Number(variant.reservedQuantity || 0);
+  const availableStock = previousStock - reservedStock;
 
-  if (previousStock < quantity) {
+  // Never allow COD to consume inventory already reserved by an online
+  // checkout. Negative available stock is treated as zero.
+  if (availableStock < quantity) {
     return {
       success: false,
     };
@@ -360,6 +385,8 @@ const decrementStandardStock = async (
   quantity,
   session,
 ) => {
+  // Reservation-aware lookup: reserved stock belongs to an active online
+  // checkout and must not be available to a new COD order.
   const product = await Product.findOne({
     _id: productId,
 
@@ -369,10 +396,6 @@ const decrementStandardStock = async (
       $elemMatch: {
         _id: variantId,
         size: String(size),
-
-        stockQuantity: {
-          $gte: quantity,
-        },
       },
     },
   }).session(session);
@@ -392,8 +415,12 @@ const decrementStandardStock = async (
   }
 
   const previousStock = Number(variant.stockQuantity || 0);
+  const reservedStock = Number(variant.reservedQuantity || 0);
+  const availableStock = previousStock - reservedStock;
 
-  if (previousStock < quantity) {
+  // Never allow COD to consume inventory already reserved by an online
+  // checkout. Negative available stock is treated as zero.
+  if (availableStock < quantity) {
     return {
       success: false,
     };
@@ -1140,17 +1167,71 @@ export const createOrderController = async (req, res) => {
        * TOTALS
        * ========================================================
        *
-       * Currently shipping/tax are 0
-       * in your project.
+       * Calculate coupon, shipping and tax
+       * server-side.
+       *
+       * Never trust totals received from frontend.
        *
        * ========================================================
        */
 
-      const shippingCharge = 0;
+      const couponCode = normalizeCouponCode(req.body.couponCode);
 
-      const tax = 0;
+      let coupon = null;
+      let couponDiscount = 0;
 
-      const totalAmount = subtotal + shippingCharge + tax;
+      if (couponCode) {
+        coupon = await Coupon.findOne({
+          code: couponCode,
+        });
+
+        if (!coupon) {
+          throw new Error('Invalid coupon code.');
+        }
+
+        if (!coupon.isActive) {
+          throw new Error('This coupon is inactive.');
+        }
+
+        if (coupon.expiresAt && new Date() > new Date(coupon.expiresAt)) {
+          throw new Error('This coupon has expired.');
+        }
+
+        if (subtotal < Number(coupon.minimumOrderAmount || 0)) {
+          throw new Error(
+            `Minimum order amount is ₹${Number(
+              coupon.minimumOrderAmount || 0,
+            ).toFixed(2)}.`,
+          );
+        }
+
+        if (
+          coupon.usageLimit !== null &&
+          Number(coupon.usedCount || 0) >= Number(coupon.usageLimit)
+        ) {
+          throw new Error('This coupon usage limit has been reached.');
+        }
+
+        const userCouponUsageCount = await Order.countDocuments({
+          userId,
+          couponCode: coupon.code,
+          orderStatus: { $ne: 'CANCELLED' },
+        }).session(session);
+
+        if (userCouponUsageCount >= Number(coupon.perUserLimit || 1)) {
+          throw new Error(
+            'You have already used this coupon the maximum allowed number of times.',
+          );
+        }
+
+        couponDiscount = calculateCouponDiscount(coupon, subtotal);
+      }
+
+      const discountedSubtotal = subtotal - couponDiscount;
+
+      const shippingCharge = calculateShippingCharge(discountedSubtotal);
+      const tax = calculateTax(discountedSubtotal);
+      const totalAmount = discountedSubtotal + shippingCharge + tax;
 
       /**
        * ========================================================
@@ -1189,6 +1270,10 @@ export const createOrderController = async (req, res) => {
 
             subtotal,
 
+            couponCode: coupon?.code || '',
+
+            couponDiscount,
+
             shippingCharge,
 
             tax,
@@ -1208,6 +1293,16 @@ export const createOrderController = async (req, res) => {
       );
 
       createdOrder = orderResult[0];
+
+      /**
+       * ========================================================
+       * CONSUME COUPON USAGE
+       * ========================================================
+       */
+
+      if (createdOrder.couponCode) {
+        await incrementCouponUsage(createdOrder.couponCode, session);
+      }
 
       /**
        * ========================================================
@@ -1547,23 +1642,37 @@ export const getMyOrdersController = async (req, res) => {
  *
  * Body:
  * {
- *   "addressId": "..."
+ *   "addressId": "...",
+ *   "couponCode": "..."
  * }
  *
- * This endpoint:
+ * Flow:
  *
- * 1. Validates user
- * 2. Validates address
- * 3. Validates cart
- * 4. Fetches ACTIVE products
- * 5. Calculates price from database
- * 6. Creates Razorpay order
+ * 1. Validate user
+ * 2. Validate address
+ * 3. Get cart
+ * 4. Get active products
+ * 5. Validate products
+ * 6. Validate size/options/stock
+ * 7. Build stock requirements
+ * 8. Calculate subtotal
+ * 9. Calculate coupon
+ * 10. Calculate shipping
+ * 11. Calculate tax
+ * 12. Create Razorpay order
+ * 13. Start MongoDB transaction
+ * 14. Reserve inventory
+ * 15. Create PaymentAttempt
  *
  * IMPORTANT:
- * Stock is NOT deducted here.
  *
- * Stock will be deducted only after successful
- * Razorpay payment verification.
+ * stockQuantity is NOT reduced here.
+ *
+ * reservedQuantity is increased.
+ *
+ * Actual stock deduction happens only after
+ * successful Razorpay payment verification.
+ *
  * ============================================================
  */
 
@@ -1572,9 +1681,9 @@ export const createRazorpayOrderController = async (req, res) => {
 
   try {
     /**
-     * --------------------------------------------------------
-     * VALIDATE USER
-     * --------------------------------------------------------
+     * ========================================================
+     * 1. VALIDATE USER
+     * ========================================================
      */
 
     if (!userId) {
@@ -1584,12 +1693,51 @@ export const createRazorpayOrderController = async (req, res) => {
       });
     }
 
+    /**
+     * ========================================================
+     * 2. IDEMPOTENCY KEY
+     * ========================================================
+     *
+     * One Idempotency-Key represents one Razorpay checkout
+     * attempt. A payment retry must use a new key.
+     *
+     * ========================================================
+     */
+
+    const idempotencyKey = req.headers['idempotency-key'];
+
+    if (!idempotencyKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Idempotency-Key header is required.',
+      });
+    }
+
+    if (
+      typeof idempotencyKey !== 'string' ||
+      idempotencyKey.trim().length < 10 ||
+      idempotencyKey.trim().length > 200
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Idempotency-Key.',
+      });
+    }
+
+    const cleanIdempotencyKey = idempotencyKey.trim();
+
+    /**
+     * ========================================================
+     * 2. GET REQUEST DATA
+     * ========================================================
+     */
+
     const { addressId } = req.body;
 
     /**
-     * --------------------------------------------------------
-     * VALIDATE ADDRESS ID
-     * --------------------------------------------------------
+     * ========================================================
+     * 3. VALIDATE ADDRESS ID
+     * ========================================================
      */
 
     if (!addressId || !mongoose.Types.ObjectId.isValid(addressId)) {
@@ -1600,9 +1748,9 @@ export const createRazorpayOrderController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * GET ADDRESS
-     * --------------------------------------------------------
+     * ========================================================
+     * 4. GET ADDRESS
+     * ========================================================
      */
 
     const address = await AddressModel.findOne({
@@ -1618,9 +1766,9 @@ export const createRazorpayOrderController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * GET CART
-     * --------------------------------------------------------
+     * ========================================================
+     * 5. GET CART
+     * ========================================================
      */
 
     const cart = await Cart.findOne({
@@ -1635,17 +1783,19 @@ export const createRazorpayOrderController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * GET PRODUCT IDS
-     * --------------------------------------------------------
+     * ========================================================
+     * 6. GET PRODUCT IDS
+     * ========================================================
      */
 
     const productIds = cart.items.map((item) => item.productId);
 
     /**
-     * --------------------------------------------------------
-     * GET ACTIVE PRODUCTS
-     * --------------------------------------------------------
+     * ========================================================
+     * 7. GET ACTIVE PRODUCTS
+     * ========================================================
+     *
+     * Never trust product information from frontend.
      */
 
     const products = await Product.find({
@@ -1661,9 +1811,9 @@ export const createRazorpayOrderController = async (req, res) => {
       .lean();
 
     /**
-     * --------------------------------------------------------
-     * MAKE PRODUCT MAP
-     * --------------------------------------------------------
+     * ========================================================
+     * 8. PRODUCT MAP
+     * ========================================================
      */
 
     const productMap = new Map(
@@ -1671,9 +1821,9 @@ export const createRazorpayOrderController = async (req, res) => {
     );
 
     /**
-     * --------------------------------------------------------
-     * VALIDATE ALL PRODUCTS
-     * --------------------------------------------------------
+     * ========================================================
+     * 9. VALIDATE ALL PRODUCTS
+     * ========================================================
      */
 
     for (const cartItem of cart.items) {
@@ -1688,16 +1838,22 @@ export const createRazorpayOrderController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * CALCULATE SUBTOTAL
-     *
-     * NEVER TRUST FRONTEND TOTAL
-     * --------------------------------------------------------
+     * ========================================================
+     * 10. PREPARE CHECKOUT DATA
+     * ========================================================
      */
 
     let subtotal = 0;
 
     const orderItems = [];
+
+    const stockRequirements = [];
+
+    /**
+     * ========================================================
+     * 11. VALIDATE EACH CART ITEM
+     * ========================================================
+     */
 
     for (const cartItem of cart.items) {
       const product = productMap.get(String(cartItem.productId));
@@ -1709,6 +1865,12 @@ export const createRazorpayOrderController = async (req, res) => {
         });
       }
 
+      /**
+       * ------------------------------------------------------
+       * QUANTITY
+       * ------------------------------------------------------
+       */
+
       const quantity = Number(cartItem.quantity);
 
       if (!Number.isInteger(quantity) || quantity < 1) {
@@ -1719,7 +1881,9 @@ export const createRazorpayOrderController = async (req, res) => {
       }
 
       /**
-       * NEVER trust frontend price
+       * ------------------------------------------------------
+       * SERVER-SIDE PRICE
+       * ------------------------------------------------------
        */
 
       const unitPrice = Number(product.basePrice);
@@ -1733,11 +1897,25 @@ export const createRazorpayOrderController = async (req, res) => {
 
       /**
        * ------------------------------------------------------
-       * VALIDATE SIZE / OPTIONS / STOCK
+       * GET STOCK REQUIREMENTS
        * ------------------------------------------------------
+       *
+       * Uses your existing getRequiredStock().
+       *
+       * STANDARD:
+       * Product.standardStock
+       *
+       * CUSTOMIZABLE:
+       * Base + Strap + optional Thumb
        */
 
       const requirements = getRequiredStock(product, cartItem);
+
+      /**
+       * ------------------------------------------------------
+       * CHECK AVAILABLE STOCK
+       * ------------------------------------------------------
+       */
 
       for (const requirement of requirements) {
         if (requirement.available < requirement.required) {
@@ -1748,32 +1926,62 @@ export const createRazorpayOrderController = async (req, res) => {
         }
       }
 
+      /**
+       * ------------------------------------------------------
+       * STORE REQUIREMENTS
+       * ------------------------------------------------------
+       */
+
+      stockRequirements.push(...requirements);
+
+      /**
+       * ------------------------------------------------------
+       * LINE TOTAL
+       * ------------------------------------------------------
+       */
+
       const lineTotal = unitPrice * quantity;
 
       subtotal += lineTotal;
+
+      /**
+       * ------------------------------------------------------
+       * CUSTOMIZABLE OPTIONS
+       * ------------------------------------------------------
+       */
 
       let base = null;
       let strap = null;
       let thumb = null;
 
-      /**
-       * ------------------------------------------------------
-       * CUSTOMIZABLE PRODUCT
-       * ------------------------------------------------------
-       */
-
       if (product.productType === 'CUSTOMIZABLE') {
+        /**
+         * BASE
+         */
+
         const baseRequirement = requirements.find(
           (item) => item.kind === 'base',
         );
+
+        /**
+         * STRAP
+         */
 
         const strapRequirement = requirements.find(
           (item) => item.kind === 'strap',
         );
 
+        /**
+         * THUMB
+         */
+
         const thumbRequirement = requirements.find(
           (item) => item.kind === 'thumb',
         );
+
+        /**
+         * BASE REQUIRED
+         */
 
         if (!baseRequirement) {
           return res.status(400).json({
@@ -1781,6 +1989,10 @@ export const createRazorpayOrderController = async (req, res) => {
             message: `Base inventory information is missing for ${product.name}.`,
           });
         }
+
+        /**
+         * STRAP REQUIRED
+         */
 
         if (!strapRequirement) {
           return res.status(400).json({
@@ -1790,7 +2002,7 @@ export const createRazorpayOrderController = async (req, res) => {
         }
 
         /**
-         * BASE / SOLE SNAPSHOT
+         * BASE SNAPSHOT
          */
 
         base = {
@@ -1853,7 +2065,7 @@ export const createRazorpayOrderController = async (req, res) => {
 
       /**
        * ------------------------------------------------------
-       * CREATE PAYMENT SNAPSHOT ITEM
+       * CREATE FROZEN PAYMENT SNAPSHOT
        * ------------------------------------------------------
        */
 
@@ -1884,11 +2096,13 @@ export const createRazorpayOrderController = async (req, res) => {
         /**
          * STANDARD INVENTORY
          */
+
         variantId: standardRequirement?.variantId || null,
 
         /**
          * CUSTOMIZABLE INVENTORY
          */
+
         base,
 
         strap,
@@ -1898,23 +2112,108 @@ export const createRazorpayOrderController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * SHIPPING / TAX
-     *
-     * Existing project currently uses 0.
-     * --------------------------------------------------------
+     * ========================================================
+     * 12. COUPON
+     * ========================================================
      */
 
-    const shippingCharge = 0;
+    const couponCode = normalizeCouponCode(req.body.couponCode);
 
-    const tax = 0;
+    let coupon = null;
 
-    const totalAmount = subtotal + shippingCharge + tax;
+    let couponDiscount = 0;
+
+    if (couponCode) {
+      coupon = await Coupon.findOne({
+        code: couponCode,
+      });
+
+      if (!coupon) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid coupon code.',
+        });
+      }
+
+      if (!coupon.isActive) {
+        return res.status(400).json({
+          success: false,
+          message: 'This coupon is inactive.',
+        });
+      }
+
+      if (coupon.expiresAt && new Date() > new Date(coupon.expiresAt)) {
+        return res.status(400).json({
+          success: false,
+          message: 'This coupon has expired.',
+        });
+      }
+
+      if (subtotal < Number(coupon.minimumOrderAmount || 0)) {
+        return res.status(400).json({
+          success: false,
+          message: `Minimum order amount is ₹${Number(
+            coupon.minimumOrderAmount || 0,
+          ).toFixed(2)}.`,
+        });
+      }
+
+      if (
+        coupon.usageLimit !== null &&
+        Number(coupon.usedCount || 0) >= Number(coupon.usageLimit)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'This coupon usage limit has been reached.',
+        });
+      }
+
+      const userCouponUsageCount = await Order.countDocuments({
+        userId,
+
+        couponCode: coupon.code,
+
+        orderStatus: {
+          $ne: 'CANCELLED',
+        },
+      });
+
+      if (userCouponUsageCount >= Number(coupon.perUserLimit || 1)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'You have already used this coupon the maximum allowed number of times.',
+        });
+      }
+
+      couponDiscount = calculateCouponDiscount(coupon, subtotal);
+    }
 
     /**
-     * --------------------------------------------------------
-     * VALIDATE TOTAL
-     * --------------------------------------------------------
+     * ========================================================
+     * 13. SHIPPING + TAX
+     * ========================================================
+     */
+
+    const discountedSubtotal = subtotal - couponDiscount;
+
+    if (discountedSubtotal < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid coupon discount.',
+      });
+    }
+
+    const shippingCharge = calculateShippingCharge(discountedSubtotal);
+
+    const tax = calculateTax(discountedSubtotal);
+
+    const totalAmount = discountedSubtotal + shippingCharge + tax;
+
+    /**
+     * ========================================================
+     * 14. VALIDATE TOTAL
+     * ========================================================
      */
 
     if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
@@ -1925,30 +2224,167 @@ export const createRazorpayOrderController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * CONVERT INR TO PAISE
-     *
-     * ₹299  => 29900
-     * ₹999  => 99900
-     * --------------------------------------------------------
+     * ========================================================
+     * 15. CONVERT TO PAISE
+     * ========================================================
      */
 
     const razorpayAmount = Math.round(totalAmount * 100);
 
     /**
-     * --------------------------------------------------------
-     * CREATE RECEIPT
-     *
-     * Maximum 40 characters.
-     * --------------------------------------------------------
+     * ========================================================
+     * 16. CREATE RAZORPAY RECEIPT
+     * ========================================================
      */
 
     const receipt = `MC_${Date.now()}`;
 
     /**
-     * --------------------------------------------------------
-     * CREATE RAZORPAY ORDER
-     * --------------------------------------------------------
+     * ========================================================
+     * CLAIM IDEMPOTENCY KEY
+     * ========================================================
+     *
+     * This is intentionally done after checkout validation so an
+     * invalid checkout does not consume the customer's key.
+     *
+     * ========================================================
+     */
+
+    let idempotencyRecord = await IdempotencyKey.findOne({
+      key: cleanIdempotencyKey,
+    });
+
+    if (idempotencyRecord) {
+      if (String(idempotencyRecord.userId) !== String(userId)) {
+        return res.status(409).json({
+          success: false,
+          message: 'This Idempotency-Key is already in use.',
+        });
+      }
+
+      if (
+        idempotencyRecord.status === 'COMPLETED' &&
+        idempotencyRecord.paymentAttemptId &&
+        idempotencyRecord.razorpayOrderId
+      ) {
+        return res.status(200).json({
+          success: true,
+          message: 'Razorpay checkout already created.',
+          idempotent: true,
+          data: {
+            razorpayOrderId: idempotencyRecord.razorpayOrderId,
+            paymentAttemptId: idempotencyRecord.paymentAttemptId,
+            keyId: process.env.RAZORPAY_KEY_ID,
+          },
+        });
+      }
+
+      if (idempotencyRecord.status === 'PROCESSING') {
+        return res.status(409).json({
+          success: false,
+          message:
+            'This checkout request is already being processed. Please wait.',
+          idempotent: true,
+        });
+      }
+
+      if (idempotencyRecord.status === 'FAILED') {
+        const reclaimedRecord = await IdempotencyKey.findOneAndUpdate(
+          {
+            _id: idempotencyRecord._id,
+            userId,
+            status: 'FAILED',
+          },
+          {
+            $set: {
+              status: 'PROCESSING',
+              orderId: null,
+              paymentAttemptId: null,
+              razorpayOrderId: '',
+            },
+          },
+          { new: true },
+        );
+
+        if (!reclaimedRecord) {
+          return res.status(409).json({
+            success: false,
+            message:
+              'This checkout request is already being processed. Please wait.',
+            idempotent: true,
+          });
+        }
+
+        idempotencyRecord = reclaimedRecord;
+      }
+
+      if (idempotencyRecord.status === 'COMPLETED') {
+        return res.status(409).json({
+          success: false,
+          message: 'This Idempotency-Key has already been used.',
+          idempotent: true,
+        });
+      }
+    } else {
+      try {
+        idempotencyRecord = await IdempotencyKey.create({
+          key: cleanIdempotencyKey,
+          userId,
+          orderId: null,
+          paymentAttemptId: null,
+          razorpayOrderId: '',
+          status: 'PROCESSING',
+        });
+      } catch (error) {
+        if (error?.code !== 11000) {
+          throw error;
+        }
+
+        const existingRequest = await IdempotencyKey.findOne({
+          key: cleanIdempotencyKey,
+        });
+
+        if (!existingRequest) {
+          throw error;
+        }
+
+        if (String(existingRequest.userId) !== String(userId)) {
+          return res.status(409).json({
+            success: false,
+            message: 'This Idempotency-Key is already in use.',
+          });
+        }
+
+        if (
+          existingRequest.status === 'COMPLETED' &&
+          existingRequest.paymentAttemptId &&
+          existingRequest.razorpayOrderId
+        ) {
+          return res.status(200).json({
+            success: true,
+            message: 'Razorpay checkout already created.',
+            idempotent: true,
+            data: {
+              razorpayOrderId: existingRequest.razorpayOrderId,
+              paymentAttemptId: existingRequest.paymentAttemptId,
+              keyId: process.env.RAZORPAY_KEY_ID,
+            },
+          });
+        }
+
+        return res.status(409).json({
+          success: false,
+          message:
+            'This checkout request is already being processed. Please wait.',
+          idempotent: true,
+        });
+      }
+    }
+
+    /**
+     * ========================================================
+     * 17. CREATE RAZORPAY ORDER
+     * ========================================================
      */
 
     const razorpayOrder = await razorpay.orders.create({
@@ -1967,50 +2403,148 @@ export const createRazorpayOrderController = async (req, res) => {
       },
     });
 
+    await IdempotencyKey.updateOne(
+      {
+        _id: idempotencyRecord._id,
+        userId,
+        status: 'PROCESSING',
+      },
+      {
+        $set: {
+          razorpayOrderId: razorpayOrder.id,
+        },
+      },
+    );
+
     /**
-     * --------------------------------------------------------
-     * CREATE PAYMENT ATTEMPT
-     *
-     * IMPORTANT:
-     *
-     * We freeze the cart and price here.
-     *
-     * Later, during payment verification,
-     * we use this snapshot instead of trusting
-     * the current cart or current product price.
-     * --------------------------------------------------------
+     * ========================================================
+     * 18. START MONGODB TRANSACTION
+     * ========================================================
      */
 
-    await PaymentAttempt.create({
-      userId,
+    const session = await mongoose.startSession();
 
-      addressId,
+    let paymentAttempt = null;
 
-      razorpayOrderId: razorpayOrder.id,
+    try {
+      await session.withTransaction(async () => {
+        /**
+         * ==================================================
+         * RESERVE INVENTORY
+         * ==================================================
+         *
+         * IMPORTANT:
+         *
+         * stockQuantity does NOT decrease.
+         *
+         * reservedQuantity increases.
+         */
 
-      amount: razorpayAmount,
+        const stockReservations = await reserveStock({
+          requirements: stockRequirements,
 
-      cartItems: orderItems,
+          session,
+        });
 
-      subtotal,
+        /**
+         * ==================================================
+         * CREATE PAYMENT ATTEMPT
+         * ==================================================
+         */
 
-      shippingCharge,
+        const attempts = await PaymentAttempt.create(
+          [
+            {
+              userId,
 
-      tax,
+              addressId,
 
-      totalAmount,
+              razorpayOrderId: razorpayOrder.id,
 
-      currency: razorpayOrder.currency,
+              razorpayPaymentId: '',
 
-      status: 'CREATED',
+              razorpaySignature: '',
 
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-    });
+              amount: razorpayAmount,
+
+              /**
+               * Frozen checkout snapshot
+               */
+
+              cartItems: orderItems,
+
+              subtotal,
+
+              couponCode: coupon?.code || '',
+
+              couponDiscount,
+
+              shippingCharge,
+
+              tax,
+
+              totalAmount,
+
+              currency: razorpayOrder.currency,
+
+              status: 'CREATED',
+
+              failureReason: '',
+
+              orderId: null,
+
+              /**
+               * Reservation snapshot
+               */
+
+              stockReservations,
+
+              reservationStatus: 'RESERVED',
+
+              reservationReleasedAt: null,
+
+              reservationCommittedAt: null,
+
+              paidAt: null,
+
+              /**
+               * Reservation expires
+               * after 30 minutes.
+               */
+
+              expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+            },
+          ],
+          {
+            session,
+          },
+        );
+
+        paymentAttempt = attempts[0];
+        await IdempotencyKey.updateOne(
+          {
+            _id: idempotencyRecord._id,
+            userId,
+            status: 'PROCESSING',
+          },
+          {
+            $set: {
+              paymentAttemptId: paymentAttempt._id,
+              razorpayOrderId: razorpayOrder.id,
+              status: 'COMPLETED',
+            },
+          },
+          { session },
+        );
+      });
+    } finally {
+      await session.endSession();
+    }
 
     /**
-     * --------------------------------------------------------
+     * ========================================================
      * SUCCESS
-     * --------------------------------------------------------
+     * ========================================================
      */
 
     return res.status(201).json({
@@ -2018,8 +2552,12 @@ export const createRazorpayOrderController = async (req, res) => {
 
       message: 'Razorpay order created successfully.',
 
+      idempotent: false,
+
       data: {
         razorpayOrderId: razorpayOrder.id,
+
+        paymentAttemptId: paymentAttempt._id,
 
         amount: razorpayOrder.amount,
 
@@ -2033,6 +2571,28 @@ export const createRazorpayOrderController = async (req, res) => {
   } catch (error) {
     console.error('Create Razorpay order error:', error);
 
+    if (idempotencyRecord?._id) {
+      try {
+        await IdempotencyKey.updateOne(
+          {
+            _id: idempotencyRecord._id,
+            userId,
+            status: 'PROCESSING',
+          },
+          {
+            $set: {
+              status: 'FAILED',
+            },
+          },
+        );
+      } catch (idempotencyError) {
+        console.error(
+          'Failed to update Razorpay idempotency status:',
+          idempotencyError,
+        );
+      }
+    }
+
     return res.status(500).json({
       success: false,
 
@@ -2044,11 +2604,55 @@ export const createRazorpayOrderController = async (req, res) => {
   }
 };
 
+/**
+ * ============================================================
+ * VERIFY RAZORPAY PAYMENT
+ * ============================================================
+ *
+ * POST /api/orders/razorpay/verify
+ *
+ * Body:
+ *
+ * {
+ *   razorpay_order_id,
+ *   razorpay_payment_id,
+ *   razorpay_signature
+ * }
+ *
+ * Flow:
+ *
+ * 1. Validate user
+ * 2. Validate request
+ * 3. Verify Razorpay signature
+ * 4. Fetch Razorpay payment
+ * 5. Find PaymentAttempt
+ * 6. Check payment status
+ * 7. Check payment amount
+ * 8. Check payment currency
+ * 9. Start MongoDB transaction
+ * 10. Load PaymentAttempt
+ * 11. Verify reservation
+ * 12. Commit reservation
+ * 13. Create order
+ * 14. Consume coupon
+ * 15. Create InventoryTransaction
+ * 16. Clear cart
+ * 17. Update user order history
+ * 18. Mark PaymentAttempt PAID
+ * 19. Mark reservation COMMITTED
+ * 20. Send notifications/email
+ *
+ * ============================================================
+ */
+
 export const verifyRazorpayPaymentController = async (req, res) => {
   const userId = req.userId;
 
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-    req.body;
+  /**
+   * ========================================================
+   * 1. VALIDATE USER
+   * ========================================================
+   */
 
   if (!userId) {
     return res.status(401).json({
@@ -2056,6 +2660,21 @@ export const verifyRazorpayPaymentController = async (req, res) => {
       message: 'Unauthorized.',
     });
   }
+
+  /**
+   * ========================================================
+   * 2. GET REQUEST DATA
+   * ========================================================
+   */
+
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+    req.body;
+
+  /**
+   * ========================================================
+   * 3. VALIDATE REQUEST
+   * ========================================================
+   */
 
   if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
     return res.status(400).json({
@@ -2066,9 +2685,9 @@ export const verifyRazorpayPaymentController = async (req, res) => {
 
   try {
     /**
-     * ==========================================================
-     * 1. VERIFY RAZORPAY SIGNATURE
-     * ==========================================================
+     * ========================================================
+     * 4. VERIFY RAZORPAY SIGNATURE
+     * ========================================================
      */
 
     const generatedSignature = crypto
@@ -2084,12 +2703,25 @@ export const verifyRazorpayPaymentController = async (req, res) => {
     }
 
     /**
-     * ==========================================================
-     * 2. FETCH RAZORPAY PAYMENT
-     * ==========================================================
+     * ========================================================
+     * 5. FETCH RAZORPAY PAYMENT
+     * ========================================================
      */
 
     const razorpayPayment = await razorpay.payments.fetch(razorpay_payment_id);
+
+    if (!razorpayPayment) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to verify Razorpay payment.',
+      });
+    }
+
+    /**
+     * ========================================================
+     * 6. FIND PAYMENT ATTEMPT
+     * ========================================================
+     */
 
     const paymentAttempt = await PaymentAttempt.findOne({
       razorpayOrderId: razorpay_order_id,
@@ -2105,9 +2737,12 @@ export const verifyRazorpayPaymentController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * PAYMENT ALREADY PROCESSED
-     * --------------------------------------------------------
+     * ========================================================
+     * 7. IDEMPOTENCY
+     * ========================================================
+     *
+     * If payment was already processed,
+     * never commit inventory again.
      */
 
     if (paymentAttempt.status === 'PAID' && paymentAttempt.orderId) {
@@ -2115,24 +2750,21 @@ export const verifyRazorpayPaymentController = async (req, res) => {
 
       return res.status(200).json({
         success: true,
+
         message: 'Payment already processed.',
+
         data: {
           order: existingOrder,
+
+          idempotent: true,
         },
       });
     }
 
-    if (!razorpayPayment) {
-      return res.status(400).json({
-        success: false,
-        message: 'Unable to verify Razorpay payment.',
-      });
-    }
-
     /**
-     * --------------------------------------------------------
-     * VERIFY RAZORPAY ORDER ID
-     * --------------------------------------------------------
+     * ========================================================
+     * 8. VERIFY RAZORPAY ORDER ID
+     * ========================================================
      */
 
     if (razorpayPayment.order_id !== razorpay_order_id) {
@@ -2143,22 +2775,23 @@ export const verifyRazorpayPaymentController = async (req, res) => {
     }
 
     /**
-     * --------------------------------------------------------
-     * VERIFY PAYMENT STATUS
-     * --------------------------------------------------------
+     * ========================================================
+     * 9. VERIFY PAYMENT STATUS
+     * ========================================================
      */
 
     if (razorpayPayment.status !== 'captured') {
       return res.status(400).json({
         success: false,
+
         message: `Payment is not captured. Current status: ${razorpayPayment.status}.`,
       });
     }
 
     /**
-     * --------------------------------------------------------
-     * VERIFY PAYMENT AMOUNT
-     * --------------------------------------------------------
+     * ========================================================
+     * 10. VERIFY PAYMENT AMOUNT
+     * ========================================================
      */
 
     if (Number(razorpayPayment.amount) !== Number(paymentAttempt.amount)) {
@@ -2168,9 +2801,11 @@ export const verifyRazorpayPaymentController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // VERIFY PAYMENT CURRENCY
-    // --------------------------------------------------------
+    /**
+     * ========================================================
+     * 11. VERIFY PAYMENT CURRENCY
+     * ========================================================
+     */
 
     if (
       razorpayPayment.currency &&
@@ -2184,9 +2819,9 @@ export const verifyRazorpayPaymentController = async (req, res) => {
     }
 
     /**
-     * ==========================================================
-     * 3. START MONGODB TRANSACTION
-     * ==========================================================
+     * ========================================================
+     * 12. START MONGODB TRANSACTION
+     * ========================================================
      */
 
     const session = await mongoose.startSession();
@@ -2196,13 +2831,14 @@ export const verifyRazorpayPaymentController = async (req, res) => {
     try {
       await session.withTransaction(async () => {
         /**
-         * ------------------------------------------------------
+         * ==================================================
          * PAYMENT ATTEMPT
-         * ------------------------------------------------------
+         * ==================================================
          */
 
         const paymentAttemptInTransaction = await PaymentAttempt.findOne({
           _id: paymentAttempt._id,
+
           userId,
         }).session(session);
 
@@ -2211,7 +2847,9 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         }
 
         /**
-         * Prevent duplicate processing
+         * ==================================================
+         * IDEMPOTENCY CHECK INSIDE TRANSACTION
+         * ==================================================
          */
 
         if (
@@ -2222,13 +2860,61 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         }
 
         /**
-         * ------------------------------------------------------
+         * ==================================================
+         * RESERVATION STATUS
+         * ==================================================
+         */
+
+        if (
+          !['CREATED', 'PROCESSING'].includes(
+            paymentAttemptInTransaction.status,
+          )
+        ) {
+          throw new Error(
+            `Payment attempt cannot be completed from status ${paymentAttemptInTransaction.status}.`,
+          );
+        }
+
+        if (paymentAttemptInTransaction.reservationStatus !== 'RESERVED') {
+          throw new Error('Payment inventory reservation is no longer valid.');
+        }
+
+        /**
+         * ==================================================
+         * RESERVATIONS
+         * ==================================================
+         */
+
+        const reservations = paymentAttemptInTransaction.stockReservations;
+
+        if (!Array.isArray(reservations) || reservations.length === 0) {
+          throw new Error('No inventory reservation found for this payment.');
+        }
+
+        /**
+         * ==================================================
+         * CHECK RESERVATION EXPIRY
+         * ==================================================
+         */
+
+        if (
+          paymentAttemptInTransaction.expiresAt &&
+          new Date() >= new Date(paymentAttemptInTransaction.expiresAt)
+        ) {
+          throw new Error(
+            'Payment reservation has expired. Please create a new payment.',
+          );
+        }
+
+        /**
+         * ==================================================
          * ADDRESS
-         * ------------------------------------------------------
+         * ==================================================
          */
 
         const address = await AddressModel.findOne({
           _id: paymentAttemptInTransaction.addressId,
+
           userId,
         }).session(session);
 
@@ -2237,28 +2923,34 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         }
 
         /**
-         * ------------------------------------------------------
-         * GET FROZEN CART SNAPSHOT
-         * ------------------------------------------------------
+         * ==================================================
+         * FROZEN PAYMENT SNAPSHOT
+         * ==================================================
          *
-         * We DO NOT use the current frontend cart
-         * for price calculation.
+         * IMPORTANT:
          *
-         * PaymentAttempt contains the snapshot created
-         * when Razorpay order was created.
-         * ------------------------------------------------------
+         * We use PaymentAttempt.cartItems.
+         *
+         * We DO NOT use the current frontend cart.
          */
 
         const snapshotItems = paymentAttemptInTransaction.cartItems;
 
-        if (!snapshotItems?.length) {
+        if (!Array.isArray(snapshotItems) || snapshotItems.length === 0) {
           throw new Error('Payment attempt contains no order items.');
         }
 
         /**
-         * ------------------------------------------------------
+         * ==================================================
          * LOAD PRODUCTS
-         * ------------------------------------------------------
+         * ==================================================
+         *
+         * We only need the product documents for
+         * validation/reference.
+         *
+         * We DO NOT use current product price.
+         *
+         * The customer already paid the frozen price.
          */
 
         const productIds = snapshotItems.map((item) => item.productId);
@@ -2267,8 +2959,6 @@ export const verifyRazorpayPaymentController = async (req, res) => {
           _id: {
             $in: productIds,
           },
-
-          status: 'ACTIVE',
         })
           .populate('allowedBases')
           .populate('allowedStraps')
@@ -2280,25 +2970,37 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         );
 
         /**
-         * ------------------------------------------------------
-         * BUILD ORDER ITEMS
-         * ------------------------------------------------------
+         * ==================================================
+         * BUILD FINAL ORDER ITEMS
+         * ==================================================
          */
 
         const orderItems = [];
-
-        const stockRequirements = [];
 
         let subtotal = 0;
 
         for (const snapshotItem of snapshotItems) {
           const product = productMap.get(String(snapshotItem.productId));
 
+          /**
+           * Product must still exist.
+           *
+           * We do NOT require status ACTIVE here.
+           *
+           * The customer has already paid.
+           */
+
           if (!product) {
             throw new Error(
-              `${snapshotItem.name || 'A product'} is no longer available.`,
+              `${snapshotItem.name || 'A product'} could not be found while completing the paid order.`,
             );
           }
+
+          /**
+           * ------------------------------------------------
+           * QUANTITY
+           * ------------------------------------------------
+           */
 
           const quantity = Number(snapshotItem.quantity);
 
@@ -2307,41 +3009,23 @@ export const verifyRazorpayPaymentController = async (req, res) => {
           }
 
           /**
-           * IMPORTANT:
+           * ------------------------------------------------
+           * FROZEN UNIT PRICE
+           * ------------------------------------------------
            *
-           * Use the frozen price stored
-           * in PaymentAttempt.
-           *
-           * Do NOT recalculate the customer's
-           * paid amount from current product price.
+           * NEVER use product.basePrice here.
            */
 
           const unitPrice = Number(snapshotItem.unitPrice);
 
           if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-            throw new Error(`Invalid price for ${product.name}.`);
+            throw new Error(`Invalid frozen price for ${product.name}.`);
           }
 
           /**
-           * --------------------------------------------------
-           * CHECK CURRENT STOCK
-           * --------------------------------------------------
-           */
-
-          const requirements = getRequiredStock(product, snapshotItem);
-
-          for (const requirement of requirements) {
-            if (requirement.available < requirement.required) {
-              throw new Error(requirement.message);
-            }
-          }
-
-          stockRequirements.push(...requirements);
-
-          /**
-           * --------------------------------------------------
-           * CALCULATE FROM FROZEN PRICE
-           * --------------------------------------------------
+           * ------------------------------------------------
+           * FROZEN LINE TOTAL
+           * ------------------------------------------------
            */
 
           const lineTotal = unitPrice * quantity;
@@ -2349,57 +3033,27 @@ export const verifyRazorpayPaymentController = async (req, res) => {
           subtotal += lineTotal;
 
           /**
-           * --------------------------------------------------
+           * ------------------------------------------------
            * CUSTOMIZABLE OPTIONS
-           * --------------------------------------------------
+           * ------------------------------------------------
            */
 
-          let base = null;
-          let strap = null;
-          let thumb = null;
+          let base = snapshotItem.base || null;
 
-          if (product.productType === 'CUSTOMIZABLE') {
-            const baseRequirement = requirements.find(
-              (item) => item.kind === 'base',
-            );
+          let strap = snapshotItem.strap || null;
 
-            const strapRequirement = requirements.find(
-              (item) => item.kind === 'strap',
-            );
-
-            const thumbRequirement = requirements.find(
-              (item) => item.kind === 'thumb',
-            );
-
-            if (!baseRequirement) {
-              throw new Error(
-                `Base inventory information is missing for ${product.name}.`,
-              );
-            }
-
-            if (!strapRequirement) {
-              throw new Error(
-                `Strap inventory information is missing for ${product.name}.`,
-              );
-            }
-
-            base = snapshotItem.base || null;
-
-            strap = snapshotItem.strap || null;
-
-            thumb = snapshotItem.thumb || null;
-          }
+          let thumb = snapshotItem.thumb || null;
 
           /**
-           * --------------------------------------------------
-           * CREATE ORDER ITEM SNAPSHOT
-           * --------------------------------------------------
+           * ------------------------------------------------
+           * CREATE ORDER ITEM
+           * ------------------------------------------------
            */
 
           orderItems.push({
             productId: product._id,
 
-            productCode: snapshotItem.productCode || product.productCode,
+            productCode: snapshotItem.productCode || product.productCode || '',
 
             name: snapshotItem.name || product.name,
 
@@ -2410,7 +3064,7 @@ export const verifyRazorpayPaymentController = async (req, res) => {
               product.mainImage ||
               '',
 
-            productType: snapshotItem.productType,
+            productType: snapshotItem.productType || product.productType,
 
             size: String(snapshotItem.size),
 
@@ -2418,29 +3072,70 @@ export const verifyRazorpayPaymentController = async (req, res) => {
 
             unitPrice,
 
-            lineTotal: Number(snapshotItem.lineTotal),
+            lineTotal,
+
+            /**
+             * STANDARD
+             */
 
             variantId: snapshotItem.variantId || null,
 
-            base: base || snapshotItem.base || null,
+            /**
+             * CUSTOMIZABLE
+             */
 
-            strap: strap || snapshotItem.strap || null,
+            base,
 
-            thumb: thumb || snapshotItem.thumb || null,
+            strap,
+
+            thumb,
           });
         }
 
         /**
-         * ======================================================
-         * PAYMENT AMOUNT CHECK
-         * ======================================================
+         * ==================================================
+         * VERIFY PAYMENT TOTAL
+         * ==================================================
+         *
+         * Coupon discount is frozen in PaymentAttempt.
          */
 
-        const shippingCharge = 0;
+        const couponDiscount = Number(
+          paymentAttemptInTransaction.couponDiscount || 0,
+        );
 
-        const tax = 0;
+        const discountedSubtotal = subtotal - couponDiscount;
 
-        const totalAmount = subtotal + shippingCharge + tax;
+        if (discountedSubtotal < 0) {
+          throw new Error('Invalid coupon discount.');
+        }
+
+        const shippingCharge = calculateShippingCharge(discountedSubtotal);
+
+        const tax = calculateTax(discountedSubtotal);
+
+        const totalAmount = discountedSubtotal + shippingCharge + tax;
+
+        /**
+         * ------------------------------------------------
+         * Compare with PaymentAttempt
+         * ------------------------------------------------
+         */
+
+        if (
+          Number(totalAmount.toFixed(2)) !==
+          Number(Number(paymentAttemptInTransaction.totalAmount).toFixed(2))
+        ) {
+          throw new Error(
+            'Payment attempt total does not match the calculated order total.',
+          );
+        }
+
+        /**
+         * ------------------------------------------------
+         * Compare Razorpay amount
+         * ------------------------------------------------
+         */
 
         const expectedAmountPaise = Math.round(totalAmount * 100);
 
@@ -2449,125 +3144,43 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         }
 
         /**
-         * ======================================================
-         * DEDUCT INVENTORY
-         * ======================================================
+         * ==================================================
+         * COMMIT RESERVED INVENTORY
+         * ==================================================
+         *
+         * THIS IS THE IMPORTANT CHANGE.
+         *
+         * DO NOT call:
+         *
+         * decrementStandardStock()
+         *
+         * DO NOT call:
+         *
+         * decrementComponentStock()
+         *
+         * The inventory was already RESERVED.
+         *
+         * commitStockReservation():
+         *
+         * stockQuantity -= quantity
+         *
+         * reservedQuantity -= quantity
          */
 
-        const inventoryEntries = [];
+        const inventoryEntries = await commitStockReservation({
+          reservations,
 
-        for (const requirement of stockRequirements) {
-          /**
-           * --------------------------------------------------
-           * STANDARD PRODUCT
-           * --------------------------------------------------
-           */
+          session,
+        });
 
-          if (requirement.kind === 'standard') {
-            const result = await decrementStandardStock(
-              requirement.productId,
-              requirement.variantId,
-              requirement.size,
-              requirement.required,
-              session,
-            );
-
-            if (!result.success) {
-              throw new Error(
-                `Product size ${requirement.size} just went out of stock. Please review your cart.`,
-              );
-            }
-
-            inventoryEntries.push({
-              type: 'ORDER',
-
-              itemType: 'STANDARD',
-
-              productId: result.productId,
-
-              variantId: result.variantId,
-
-              quantity: result.quantity,
-
-              previousStock: result.previousStock,
-
-              newStock: result.newStock,
-
-              performedBy: userId,
-
-              reason: 'Stock deducted for paid customer order.',
-            });
-
-            continue;
-          }
-
-          /**
-           * --------------------------------------------------
-           * CUSTOMIZABLE PRODUCT
-           * --------------------------------------------------
-           */
-
-          let Model;
-
-          if (requirement.kind === 'base') {
-            Model = Base;
-          } else if (requirement.kind === 'strap') {
-            Model = Strap;
-          } else if (requirement.kind === 'thumb') {
-            Model = Thumb;
-          } else {
-            throw new Error('Invalid inventory requirement.');
-          }
-
-          const result = await decrementComponentStock(
-            Model,
-
-            requirement.componentId,
-
-            requirement.colorId,
-
-            requirement.variantId,
-
-            requirement.size,
-
-            requirement.required,
-
-            session,
-          );
-
-          if (!result.success) {
-            throw new Error(
-              `${requirement.colorName} ${requirement.kind} size ${requirement.size} just went out of stock. Please review your cart.`,
-            );
-          }
-
-          inventoryEntries.push({
-            type: 'ORDER',
-
-            itemType: requirement.kind.toUpperCase(),
-
-            componentId: result.componentId,
-
-            colorId: result.colorId,
-
-            variantId: result.variantId,
-
-            quantity: result.quantity,
-
-            previousStock: result.previousStock,
-
-            newStock: result.newStock,
-
-            performedBy: userId,
-
-            reason: 'Stock deducted for paid customer order.',
-          });
+        if (!Array.isArray(inventoryEntries) || inventoryEntries.length === 0) {
+          throw new Error('Unable to commit reserved inventory.');
         }
 
         /**
-         * ======================================================
+         * ==================================================
          * CREATE FINAL ORDER
-         * ======================================================
+         * ==================================================
          */
 
         const order = await Order.create(
@@ -2600,6 +3213,10 @@ export const verifyRazorpayPaymentController = async (req, res) => {
               },
 
               subtotal,
+
+              couponCode: paymentAttemptInTransaction.couponCode || '',
+
+              couponDiscount,
 
               shippingCharge,
 
@@ -2634,15 +3251,38 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         createdOrder = order[0];
 
         /**
-         * ======================================================
-         * INVENTORY TRANSACTIONS
-         * ======================================================
+         * ==================================================
+         * CONSUME COUPON
+         * ==================================================
+         */
+
+        if (createdOrder.couponCode) {
+          await incrementCouponUsage(createdOrder.couponCode, session);
+        }
+
+        /**
+         * ==================================================
+         * INVENTORY TRANSACTION
+         * ==================================================
+         *
+         * commitStockReservation()
+         * already returned:
+         *
+         * previousStock
+         * newStock
+         *
+         * which are required by your
+         * InventoryTransaction schema.
          */
 
         const entriesWithOrder = inventoryEntries.map((entry) => ({
           ...entry,
 
           orderId: createdOrder._id,
+
+          performedBy: userId,
+
+          reason: 'Stock committed from Razorpay payment reservation.',
         }));
 
         if (entriesWithOrder.length) {
@@ -2652,9 +3292,9 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         }
 
         /**
-         * ======================================================
+         * ==================================================
          * CLEAR CART
-         * ======================================================
+         * ==================================================
          */
 
         const cart = await Cart.findOne({
@@ -2670,9 +3310,9 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         }
 
         /**
-         * ======================================================
+         * ==================================================
          * USER ORDER HISTORY
-         * ======================================================
+         * ==================================================
          */
 
         await UserModel.updateOne(
@@ -2692,9 +3332,9 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         );
 
         /**
-         * ======================================================
-         * MARK PAYMENT ATTEMPT AS PAID
-         * ======================================================
+         * ==================================================
+         * MARK PAYMENT ATTEMPT PAID
+         * ==================================================
          */
 
         paymentAttemptInTransaction.status = 'PAID';
@@ -2706,6 +3346,18 @@ export const verifyRazorpayPaymentController = async (req, res) => {
         paymentAttemptInTransaction.orderId = createdOrder._id;
 
         paymentAttemptInTransaction.paidAt = new Date();
+
+        /**
+         * ==================================================
+         * RESERVATION LIFECYCLE
+         * ==================================================
+         */
+
+        paymentAttemptInTransaction.reservationStatus = 'COMMITTED';
+
+        paymentAttemptInTransaction.reservationCommittedAt = new Date();
+
+        paymentAttemptInTransaction.reservationReleasedAt = null;
 
         await paymentAttemptInTransaction.save({
           session,
@@ -2719,6 +3371,11 @@ export const verifyRazorpayPaymentController = async (req, res) => {
      * ========================================================
      * ADMIN NOTIFICATION
      * ========================================================
+     *
+     * Outside transaction.
+     *
+     * Notification failure must never rollback
+     * an already-paid order.
      */
 
     if (createdOrder) {
@@ -2790,12 +3447,20 @@ export const verifyRazorpayPaymentController = async (req, res) => {
 
       data: {
         order: createdOrder,
+
+        idempotent: false,
       },
     });
   } catch (error) {
     console.error('Verify Razorpay payment error:', error);
 
     const errorMessage = error?.message || '';
+
+    /**
+     * ========================================================
+     * MONGODB TRANSACTION ERROR
+     * ========================================================
+     */
 
     const transactionError =
       errorMessage.includes('Transaction numbers are only allowed') ||
@@ -2854,6 +3519,887 @@ export const getOrderByIdController = async (req, res) => {
       success: false,
       message: 'Unable to fetch order.',
     });
+  }
+};
+
+/**
+ * ============================================================
+ * CANCEL MY ORDER
+ * ============================================================
+ *
+ * PATCH /api/orders/:orderId/cancel
+ *
+ * Rules:
+ * - Customer can cancel only their own order
+ * - Allowed: PLACED, CONFIRMED, PROCESSING
+ * - SHIPPED / DELIVERED cannot be cancelled
+ * - COD cancellation restores inventory
+ * - PAID ONLINE cancellation is blocked for now
+ *   until Razorpay refund flow is implemented
+ *
+ * ============================================================
+ */
+
+export const cancelMyOrderController = async (req, res) => {
+  const userId = req.userId;
+  const { orderId } = req.params;
+
+  /*
+   * ------------------------------------------------------------
+   * STEP 1: AUTHENTICATION
+   * ------------------------------------------------------------
+   */
+
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication required.',
+    });
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * STEP 2: VALIDATE ORDER ID
+   * ------------------------------------------------------------
+   */
+
+  if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid order ID.',
+    });
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * STEP 3: START TRANSACTION
+   * ------------------------------------------------------------
+   *
+   * IMPORTANT:
+   *
+   * For paid online orders:
+   *
+   * MongoDB transaction completes FIRST.
+   *
+   * Razorpay refund is created AFTER transaction commit.
+   *
+   * This prevents:
+   *
+   * Razorpay refund SUCCESS
+   * +
+   * MongoDB transaction ROLLBACK
+   *
+   * from creating an inconsistent order.
+   *
+   * ------------------------------------------------------------
+   */
+
+  const session = await mongoose.startSession();
+
+  let cancelledOrder = null;
+  let shouldCreateRefund = false;
+  let refundAmountPaise = 0;
+
+  try {
+    await session.withTransaction(async () => {
+      /*
+       * ----------------------------------------------------------
+       * STEP 4: RE-READ ORDER INSIDE TRANSACTION
+       * ----------------------------------------------------------
+       *
+       * Never trust the order snapshot loaded before the
+       * transaction because another request may have changed it.
+       *
+       * ----------------------------------------------------------
+       */
+
+      const currentOrder = await Order.findOne({
+        _id: orderId,
+        userId,
+      }).session(session);
+
+      if (!currentOrder) {
+        throw new Error('Order not found.');
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 5: PREVENT DUPLICATE CANCELLATION
+       * ----------------------------------------------------------
+       */
+
+      if (currentOrder.orderStatus === 'CANCELLED') {
+        throw new Error('Order is already cancelled.');
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 6: VALIDATE CANCELLATION WINDOW
+       * ----------------------------------------------------------
+       */
+
+      if (
+        !['PLACED', 'CONFIRMED', 'PROCESSING'].includes(
+          currentOrder.orderStatus,
+        )
+      ) {
+        throw new Error(
+          `Order cannot be cancelled after it reaches ${currentOrder.orderStatus}.`,
+        );
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 7: DETECT PAID ONLINE ORDER
+       * ----------------------------------------------------------
+       */
+
+      const currentIsPaidOnline =
+        currentOrder.paymentMethod === 'ONLINE' &&
+        currentOrder.paymentProvider === 'RAZORPAY' &&
+        currentOrder.paymentStatus === 'PAID';
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 8: ONLINE PAYMENT VALIDATION
+       * ----------------------------------------------------------
+       */
+
+      if (currentIsPaidOnline) {
+        /*
+         * Razorpay payment ID is required to create refund later.
+         */
+
+        if (!currentOrder.razorpayPaymentId) {
+          throw new Error('Razorpay payment ID is missing.');
+        }
+
+        /*
+         * Refund amount is calculated from server-side order
+         * total only.
+         */
+
+        refundAmountPaise = Math.round(Number(currentOrder.totalAmount) * 100);
+
+        if (!Number.isFinite(refundAmountPaise) || refundAmountPaise <= 0) {
+          throw new Error('Invalid refund amount.');
+        }
+
+        /*
+         * --------------------------------------------------------
+         * ALREADY REFUNDED
+         * --------------------------------------------------------
+         */
+
+        if (
+          currentOrder.refundStatus === 'PROCESSED' ||
+          currentOrder.paymentStatus === 'REFUNDED'
+        ) {
+          throw new Error('This order has already been refunded.');
+        }
+
+        /*
+         * --------------------------------------------------------
+         * REFUND ALREADY PENDING
+         * --------------------------------------------------------
+         *
+         * A previous cancellation/refund attempt may already be
+         * in progress.
+         *
+         * --------------------------------------------------------
+         */
+
+        if (currentOrder.refundStatus === 'PENDING' && currentOrder.refundId) {
+          throw new Error('Refund is already being processed for this order.');
+        }
+
+        /*
+         * --------------------------------------------------------
+         * PREPARE REFUND
+         * --------------------------------------------------------
+         *
+         * Do NOT call Razorpay here.
+         *
+         * We only mark the order as refund pending.
+         *
+         * The actual Razorpay API call happens after MongoDB
+         * transaction successfully commits.
+         *
+         * --------------------------------------------------------
+         */
+
+        currentOrder.refundAmount = refundAmountPaise / 100;
+        currentOrder.refundStatus = 'PENDING';
+        currentOrder.refundFailureReason = '';
+
+        shouldCreateRefund = true;
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 9: RESTORE INVENTORY
+       * ----------------------------------------------------------
+       */
+
+      const inventoryEntries = [];
+
+      for (const item of currentOrder.items) {
+        const quantity = Number(item.quantity);
+
+        /*
+         * --------------------------------------------------------
+         * VALIDATE QUANTITY
+         * --------------------------------------------------------
+         */
+
+        if (!Number.isInteger(quantity) || quantity < 1) {
+          throw new Error(`Invalid quantity for ${item.name}.`);
+        }
+
+        /*
+         * ========================================================
+         * STANDARD PRODUCT
+         * ========================================================
+         */
+
+        if (item.productType === 'STANDARD') {
+          if (!item.variantId) {
+            throw new Error(
+              `Inventory information is missing for ${item.name}.`,
+            );
+          }
+
+          /*
+           * Re-read exact product + exact variant inside
+           * transaction.
+           */
+
+          const product = await Product.findOne({
+            _id: item.productId,
+            productType: 'STANDARD',
+            standardStock: {
+              $elemMatch: {
+                _id: item.variantId,
+                size: String(item.size),
+              },
+            },
+          }).session(session);
+
+          if (!product) {
+            throw new Error(`Unable to restore inventory for ${item.name}.`);
+          }
+
+          const variant = product.standardStock.id(item.variantId);
+
+          if (!variant) {
+            throw new Error(`Inventory variant not found for ${item.name}.`);
+          }
+
+          const previousStock = Number(variant.stockQuantity || 0);
+
+          const newStock = previousStock + quantity;
+
+          variant.stockQuantity = newStock;
+
+          await product.save({
+            session,
+          });
+
+          /*
+           * Inventory audit
+           */
+
+          inventoryEntries.push({
+            type: 'CANCEL',
+            itemType: 'STANDARD',
+            productId: product._id,
+            variantId: variant._id,
+            size: String(item.size),
+            quantity,
+            previousStock,
+            newStock,
+            performedBy: userId,
+            orderId: currentOrder._id,
+            reason: 'Stock restored after customer order cancellation.',
+          });
+
+          continue;
+        }
+
+        /*
+         * ========================================================
+         * CUSTOMIZABLE PRODUCT
+         * ========================================================
+         */
+
+        if (item.productType !== 'CUSTOMIZABLE') {
+          throw new Error(`Unsupported product type for ${item.name}.`);
+        }
+
+        /*
+         * Base + Strap + optional Thumb
+         */
+
+        const components = [
+          {
+            type: 'BASE',
+            model: Base,
+            data: item.base,
+          },
+          {
+            type: 'STRAP',
+            model: Strap,
+            data: item.strap,
+          },
+          {
+            type: 'THUMB',
+            model: Thumb,
+            data: item.thumb,
+          },
+        ];
+
+        for (const component of components) {
+          /*
+           * Thumb is optional.
+           */
+
+          if (!component.data) {
+            continue;
+          }
+
+          const { componentId, colorId, variantId } = component.data;
+
+          /*
+           * Validate immutable inventory references stored
+           * inside the order snapshot.
+           */
+
+          if (!componentId || !colorId || !variantId) {
+            throw new Error(
+              `Inventory information is missing for ${item.name}.`,
+            );
+          }
+
+          /*
+           * Re-read exact component + color + variant inside
+           * transaction.
+           */
+
+          const componentDoc = await component.model
+            .findOne({
+              _id: componentId,
+              colors: {
+                $elemMatch: {
+                  _id: colorId,
+                  variants: {
+                    $elemMatch: {
+                      _id: variantId,
+                      size: String(item.size),
+                    },
+                  },
+                },
+              },
+            })
+            .session(session);
+
+          if (!componentDoc) {
+            throw new Error(
+              `Unable to restore ${component.type.toLowerCase()} inventory for ${item.name}.`,
+            );
+          }
+
+          const color = componentDoc.colors.id(colorId);
+
+          const variant = color?.variants.id(variantId);
+
+          if (!color || !variant) {
+            throw new Error(
+              `${component.type} inventory variant not found for ${item.name}.`,
+            );
+          }
+
+          const previousStock = Number(variant.stockQuantity || 0);
+
+          const newStock = previousStock + quantity;
+
+          variant.stockQuantity = newStock;
+
+          await componentDoc.save({
+            session,
+          });
+
+          /*
+           * Inventory audit
+           */
+
+          inventoryEntries.push({
+            type: 'CANCEL',
+            itemType: component.type,
+            componentId: componentDoc._id,
+            colorId: color._id,
+            variantId: variant._id,
+            size: String(item.size),
+            quantity,
+            previousStock,
+            newStock,
+            performedBy: userId,
+            orderId: currentOrder._id,
+            reason: 'Stock restored after customer order cancellation.',
+          });
+        }
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 10: CREATE INVENTORY AUDIT RECORDS
+       * ----------------------------------------------------------
+       */
+
+      if (inventoryEntries.length > 0) {
+        await InventoryTransaction.create(inventoryEntries, {
+          session,
+          ordered: true,
+        });
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 11: FINAL STATUS RECHECK
+       * ----------------------------------------------------------
+       *
+       * Keep this check immediately before the order mutation.
+       *
+       * This protects against accidental reuse of this transaction
+       * logic if more cancellation states are added later.
+       *
+       * ----------------------------------------------------------
+       */
+
+      if (
+        !['PLACED', 'CONFIRMED', 'PROCESSING'].includes(
+          currentOrder.orderStatus,
+        )
+      ) {
+        throw new Error(
+          `Order cannot be cancelled because its status is ${currentOrder.orderStatus}.`,
+        );
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 12: CANCEL ORDER
+       * ----------------------------------------------------------
+       */
+
+      currentOrder.orderStatus = 'CANCELLED';
+      currentOrder.cancelledAt = new Date();
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 13: REFUND STATE
+       * ----------------------------------------------------------
+       *
+       * IMPORTANT:
+       *
+       * For online payment:
+       *
+       * refundStatus = PENDING
+       * paymentStatus = PAID
+       *
+       * Razorpay refund.processed webhook will later change:
+       *
+       * refundStatus  -> PROCESSED
+       * paymentStatus -> REFUNDED
+       *
+       * ----------------------------------------------------------
+       */
+
+      if (currentIsPaidOnline) {
+        currentOrder.refundStatus = 'PENDING';
+
+        /*
+         * NEVER set:
+         *
+         * currentOrder.paymentStatus = 'REFUNDED';
+         *
+         * here.
+         */
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * SAVE ORDER
+       * ----------------------------------------------------------
+       */
+
+      await currentOrder.save({
+        session,
+      });
+
+      cancelledOrder = currentOrder;
+    });
+
+    /*
+     * ------------------------------------------------------------
+     * STEP 14: MONGODB TRANSACTION COMMITTED
+     * ------------------------------------------------------------
+     *
+     * At this point:
+     *
+     * - Inventory restored
+     * - Inventory audit created
+     * - Order cancelled
+     * - Online refund marked PENDING
+     *
+     * Only NOW call Razorpay.
+     *
+     * ------------------------------------------------------------
+     */
+
+    let razorpayRefund = null;
+
+    if (shouldCreateRefund) {
+      /*
+       * ----------------------------------------------------------
+       * STEP 15: RE-READ ORDER BEFORE RAZORPAY REFUND
+       * ----------------------------------------------------------
+       *
+       * A webhook or another process could have changed the
+       * refund state after the transaction committed.
+       *
+       * Never blindly use the earlier transaction snapshot.
+       *
+       * ----------------------------------------------------------
+       */
+
+      const refundOrder = await Order.findOne({
+        _id: orderId,
+        userId,
+      });
+
+      if (!refundOrder) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Order was cancelled, but could not be found before refund processing.',
+        });
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * ALREADY REFUNDED
+       * ----------------------------------------------------------
+       */
+
+      if (
+        refundOrder.refundStatus === 'PROCESSED' ||
+        refundOrder.paymentStatus === 'REFUNDED'
+      ) {
+        return res.status(200).json({
+          success: true,
+          message: 'Order cancelled and refund has already been processed.',
+          data: {
+            order: refundOrder,
+            refund: null,
+          },
+        });
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * REFUND ALREADY CREATED
+       * ----------------------------------------------------------
+       */
+
+      if (refundOrder.refundStatus === 'PENDING' && refundOrder.refundId) {
+        return res.status(200).json({
+          success: true,
+          message: 'Order cancelled and refund is currently being processed.',
+          data: {
+            order: refundOrder,
+            refund: {
+              id: refundOrder.refundId,
+              amount: Math.round(Number(refundOrder.refundAmount || 0) * 100),
+              currency: 'INR',
+              status: 'pending',
+            },
+          },
+        });
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * VALIDATE PAYMENT AGAIN
+       * ----------------------------------------------------------
+       */
+
+      if (
+        refundOrder.paymentMethod !== 'ONLINE' ||
+        refundOrder.paymentProvider !== 'RAZORPAY'
+      ) {
+        throw new Error('Invalid payment configuration for online refund.');
+      }
+
+      if (
+        refundOrder.paymentStatus !== 'PAID' &&
+        refundOrder.paymentStatus !== 'REFUNDED'
+      ) {
+        throw new Error(
+          `Online payment cannot be refunded because its current status is ${refundOrder.paymentStatus}.`,
+        );
+      }
+
+      if (!refundOrder.razorpayPaymentId) {
+        throw new Error('Razorpay payment ID is missing.');
+      }
+
+      const finalRefundAmountPaise = Math.round(
+        Number(refundOrder.refundAmount || refundOrder.totalAmount) * 100,
+      );
+
+      if (
+        !Number.isFinite(finalRefundAmountPaise) ||
+        finalRefundAmountPaise <= 0
+      ) {
+        throw new Error('Invalid refund amount.');
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 16: CREATE RAZORPAY REFUND
+       * ----------------------------------------------------------
+       *
+       * Deterministic idempotency key:
+       *
+       * CANCEL_<orderId>
+       *
+       * If the HTTP response is lost after Razorpay accepts the
+       * refund, retrying with the same key will not intentionally
+       * create a second refund request.
+       *
+       * ----------------------------------------------------------
+       */
+
+      try {
+        razorpayRefund = await createRazorpayRefund({
+          paymentId: refundOrder.razorpayPaymentId,
+          amount: finalRefundAmountPaise,
+          speed: 'normal',
+          receipt: `CANCEL_${refundOrder.orderNumber}`,
+          idempotencyKey: `CANCEL_${refundOrder._id}`,
+          notes: {
+            orderId: String(refundOrder._id),
+            orderNumber: refundOrder.orderNumber,
+            reason: 'Customer cancelled order',
+          },
+        });
+
+        if (!razorpayRefund?.id) {
+          throw new Error('Razorpay did not return a refund ID.');
+        }
+      } catch (refundError) {
+        /*
+         * --------------------------------------------------------
+         * STEP 17: REFUND CREATION FAILED
+         * --------------------------------------------------------
+         *
+         * IMPORTANT:
+         *
+         * The order is ALREADY cancelled and inventory is ALREADY
+         * restored.
+         *
+         * Therefore we must NOT rollback the cancellation.
+         *
+         * Mark refund FAILED so it can be retried/reconciled.
+         *
+         * --------------------------------------------------------
+         */
+
+        console.error(
+          'Customer cancellation Razorpay refund error:',
+          refundError,
+        );
+
+        await Order.updateOne(
+          {
+            _id: orderId,
+            userId,
+            orderStatus: 'CANCELLED',
+            refundStatus: 'PENDING',
+          },
+          {
+            $set: {
+              refundStatus: 'FAILED',
+              refundFailureReason:
+                refundError?.message || 'Unable to create Razorpay refund.',
+            },
+          },
+        );
+
+        return res.status(502).json({
+          success: false,
+          message:
+            'Order was cancelled successfully, but the Razorpay refund could not be initiated. Refund status is marked FAILED for retry.',
+          data: {
+            order: await Order.findOne({
+              _id: orderId,
+              userId,
+            }),
+          },
+        });
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * STEP 18: SAVE RAZORPAY REFUND ID
+       * ----------------------------------------------------------
+       *
+       * IMPORTANT:
+       *
+       * Do NOT change paymentStatus to REFUNDED here.
+       *
+       * The refund.processed webhook is authoritative for the
+       * final refund state.
+       *
+       * ----------------------------------------------------------
+       */
+
+      const refundUpdate = await Order.findOneAndUpdate(
+        {
+          _id: orderId,
+          userId,
+          orderStatus: 'CANCELLED',
+          refundStatus: 'PENDING',
+        },
+        {
+          $set: {
+            refundId: razorpayRefund.id,
+            refundAmount: Number(razorpayRefund.amount || 0) / 100,
+            refundFailureReason: '',
+          },
+        },
+        {
+          new: true,
+        },
+      );
+
+      /*
+       * ----------------------------------------------------------
+       * WEBHOOK WON THE RACE
+       * ----------------------------------------------------------
+       *
+       * If the refund webhook already changed the state, do not
+       * overwrite PROCESSED / REFUNDED with PENDING.
+       * ----------------------------------------------------------
+       */
+
+      if (!refundUpdate) {
+        const latestOrder = await Order.findOne({
+          _id: orderId,
+          userId,
+        });
+
+        if (
+          latestOrder?.refundStatus === 'PROCESSED' ||
+          latestOrder?.paymentStatus === 'REFUNDED'
+        ) {
+          return res.status(200).json({
+            success: true,
+            message: 'Order cancelled and refund has been processed.',
+            data: {
+              order: latestOrder,
+              refund: null,
+            },
+          });
+        }
+
+        /*
+         * Refund exists at Razorpay but local refund ID was not
+         * saved. Do not create another refund automatically.
+         */
+
+        return res.status(409).json({
+          success: false,
+          message:
+            'Order was cancelled and Razorpay refund was created, but the refund state could not be saved locally. Please reconcile the refund before retrying.',
+          data: {
+            refundId: razorpayRefund.id,
+          },
+        });
+      }
+
+      cancelledOrder = refundUpdate;
+    }
+
+    /*
+     * ------------------------------------------------------------
+     * STEP 19: FINAL ORDER
+     * ------------------------------------------------------------
+     */
+
+    const finalOrder = await Order.findOne({
+      _id: orderId,
+      userId,
+    });
+
+    /*
+     * ------------------------------------------------------------
+     * STEP 20: SUCCESS RESPONSE
+     * ------------------------------------------------------------
+     */
+
+    return res.status(200).json({
+      success: true,
+      message: shouldCreateRefund
+        ? 'Order cancelled and refund initiated successfully.'
+        : 'Order cancelled successfully.',
+      data: {
+        order: finalOrder || cancelledOrder,
+        refund: shouldCreateRefund
+          ? {
+              id: razorpayRefund?.id || finalOrder?.refundId || null,
+              amount:
+                razorpayRefund?.amount ||
+                Math.round(Number(finalOrder?.refundAmount || 0) * 100),
+              currency: razorpayRefund?.currency || 'INR',
+              status: razorpayRefund?.status || 'pending',
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    /*
+     * ------------------------------------------------------------
+     * STEP 21: ERROR HANDLING
+     * ------------------------------------------------------------
+     */
+
+    console.error('Cancel order error:', error);
+
+    const errorMessage = error?.message || '';
+
+    /*
+     * ----------------------------------------------------------
+     * TRANSACTION / MONGODB ERROR
+     * ----------------------------------------------------------
+     */
+
+    const transactionError =
+      errorMessage.includes('Transaction numbers are only allowed') ||
+      errorMessage.includes('transaction') ||
+      errorMessage.includes('replica set') ||
+      errorMessage.includes('NoSuchTransaction') ||
+      errorMessage.includes('TransientTransactionError') ||
+      errorMessage.includes('ConflictingOperationInProgress');
+
+    return res.status(transactionError ? 503 : 400).json({
+      success: false,
+      message: transactionError
+        ? 'MongoDB transactions are required for order cancellation. Please use MongoDB Atlas or run local MongoDB as a replica set.'
+        : errorMessage || 'Unable to cancel order.',
+    });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -2930,6 +4476,107 @@ export const getAllOrdersController = async (req, res) => {
  * SHIPPED / DELIVERED cannot be cancelled.
  * CANCELLED cannot be changed.
  */
+
+export const updateOrderShippingController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { courierName, trackingNumber, trackingUrl } = req.body || {};
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID.',
+      });
+    }
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    if (order.orderStatus === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Shipping details cannot be updated for a cancelled order.',
+      });
+    }
+
+    const cleanCourierName = String(courierName || '').trim();
+    const cleanTrackingNumber = String(trackingNumber || '').trim();
+    const cleanTrackingUrl = String(trackingUrl || '').trim();
+
+    if (cleanCourierName.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Courier name is too long.',
+      });
+    }
+
+    if (cleanTrackingNumber.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tracking number is too long.',
+      });
+    }
+
+    if (cleanTrackingUrl.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tracking URL is too long.',
+      });
+    }
+
+    if (cleanTrackingUrl) {
+      let parsedUrl;
+
+      try {
+        parsedUrl = new URL(cleanTrackingUrl);
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: 'Tracking URL must be a valid URL.',
+        });
+      }
+
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tracking URL must start with http:// or https://.',
+        });
+      }
+    }
+
+    order.shipping = {
+      courierName: cleanCourierName,
+      trackingNumber: cleanTrackingNumber,
+      trackingUrl: cleanTrackingUrl,
+      shippedAt:
+        order.shipping?.shippedAt ||
+        (order.orderStatus === 'SHIPPED' ? new Date() : null),
+    };
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Shipping details updated successfully.',
+      data: {
+        order,
+      },
+    });
+  } catch (error) {
+    console.error('Update order shipping error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to update shipping details.',
+    });
+  }
+};
 
 const allowedStatusTransitions = {
   PLACED: ['CONFIRMED', 'CANCELLED'],
@@ -3038,11 +4685,41 @@ export const updateOrderStatusController = async (req, res) => {
 
     /**
      * ==========================================================
+     * VALIDATE STATUS TRANSITION
+     * ==========================================================
+     */
+
+    const allowedNextStatuses =
+      allowedStatusTransitions[order.orderStatus] || [];
+
+    if (!allowedNextStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot change order status from ${order.orderStatus} to ${status}.`,
+      });
+    }
+
+    /**
+     * ==========================================================
      * UPDATE STATUS
      * ==========================================================
      */
 
     order.orderStatus = status;
+
+    // Store the exact delivery time.
+    // This becomes the starting point for the return window.
+
+    if (status === 'SHIPPED') {
+      order.shipping = {
+        ...(order.shipping?.toObject?.() || order.shipping || {}),
+        shippedAt: order.shipping?.shippedAt || new Date(),
+      };
+    }
+
+    if (status === 'DELIVERED') {
+      order.deliveredAt = new Date();
+    }
 
     await order.save();
 
@@ -3068,5 +4745,1594 @@ export const updateOrderStatusController = async (req, res) => {
       success: false,
       message: 'Unable to update order status.',
     });
+  }
+};
+
+/**
+ * ============================================================
+ * MARK COD PAYMENT AS PAID - ADMIN
+ * ============================================================
+ *
+ * PATCH /api/orders/admin/:orderId/cod-paid
+ *
+ * Rules:
+ * - Only COD orders
+ * - Payment must currently be PENDING
+ * - Order must be DELIVERED
+ * - Only ADMIN / SUPER_ADMIN can access
+ *
+ * ============================================================
+ */
+
+export const markCodPaymentAsPaidController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    /**
+     * ==========================================================
+     * VALIDATE ORDER ID
+     * ==========================================================
+     */
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * ATOMIC UPDATE
+     * ==========================================================
+     *
+     * The conditions below make the operation idempotent and
+     * prevent accidentally marking an ONLINE order as COD paid.
+     *
+     * ==========================================================
+     */
+
+    const updatedOrder = await Order.findOneAndUpdate(
+      {
+        _id: orderId,
+        paymentMethod: 'COD',
+        paymentStatus: 'PENDING',
+        orderStatus: 'DELIVERED',
+      },
+      {
+        $set: {
+          paymentStatus: 'PAID',
+          paymentPaidAt: new Date(),
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
+
+    /**
+     * ==========================================================
+     * ORDER NOT ELIGIBLE
+     * ==========================================================
+     */
+
+    if (!updatedOrder) {
+      const order = await Order.findById(orderId).select(
+        'orderNumber paymentMethod paymentStatus orderStatus',
+      );
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found.',
+        });
+      }
+
+      if (order.paymentMethod !== 'COD') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only COD orders can be marked as paid.',
+        });
+      }
+
+      if (order.paymentStatus === 'PAID') {
+        return res.status(400).json({
+          success: false,
+          message: 'COD payment is already marked as paid.',
+        });
+      }
+
+      if (order.orderStatus !== 'DELIVERED') {
+        return res.status(400).json({
+          success: false,
+          message: 'COD payment can only be marked as paid after delivery.',
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: 'COD payment cannot be marked as paid.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * SUCCESS
+     * ==========================================================
+     */
+
+    console.log(
+      `COD payment marked as PAID: ${updatedOrder.orderNumber} by ${req.userId}`,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'COD payment marked as paid successfully.',
+      data: {
+        order: updatedOrder,
+      },
+    });
+  } catch (error) {
+    console.error('Mark COD payment as paid error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to mark COD payment as paid.',
+    });
+  }
+};
+
+/**
+ * ============================================================
+ * REFUND RAZORPAY ORDER
+ * ============================================================
+ *
+ * POST /api/orders/admin/:orderId/refund
+ *
+ * Only ADMIN / SUPER_ADMIN can access this endpoint.
+ *
+ * This currently supports FULL REFUND only.
+ *
+ * Flow:
+ * 1. Validate order ID
+ * 2. Find order
+ * 3. Verify Razorpay payment
+ * 4. Verify payment is PAID
+ * 5. Verify refund has not already been created
+ * 6. Create Razorpay refund
+ * 7. Save refund ID
+ * 8. Mark payment as REFUNDED
+ *
+ * ============================================================
+ */
+
+export const refundRazorpayOrderController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    /**
+     * ==========================================================
+     * 1. VALIDATE ORDER ID
+     * ==========================================================
+     */
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 2. FIND ORDER
+     * ==========================================================
+     */
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 3. VERIFY PAYMENT METHOD
+     * ==========================================================
+     */
+
+    if (order.paymentMethod !== 'ONLINE') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only online Razorpay orders can be refunded.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 4. VERIFY PAYMENT PROVIDER
+     * ==========================================================
+     */
+
+    if (order.paymentProvider !== 'RAZORPAY') {
+      return res.status(400).json({
+        success: false,
+        message: 'This order was not paid through Razorpay.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 5. VERIFY PAYMENT STATUS
+     * ==========================================================
+     */
+
+    if (order.paymentStatus !== 'PAID') {
+      return res.status(400).json({
+        success: false,
+        message: `Order payment status is ${order.paymentStatus}. Only PAID orders can be refunded.`,
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 6. VERIFY RAZORPAY PAYMENT ID
+     * ==========================================================
+     */
+
+    if (!order.razorpayPaymentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Razorpay payment ID is missing.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 7. PREVENT DUPLICATE REFUND
+     * ==========================================================
+     */
+
+    if (order.refundId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Refund has already been initiated for this order.',
+        data: {
+          refundId: order.refundId,
+        },
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 8. CALCULATE FULL REFUND AMOUNT
+     * ==========================================================
+     *
+     * Razorpay expects the amount in paise.
+     *
+     * Example:
+     *
+     * ₹999 = 99900 paise
+     *
+     * ==========================================================
+     */
+
+    const refundAmount = Math.round(Number(order.totalAmount) * 100);
+
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid refund amount.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 9. CREATE RAZORPAY REFUND
+     * ==========================================================
+     */
+
+    const refund = await createRazorpayRefund({
+      paymentId: order.razorpayPaymentId,
+      amount: refundAmount,
+      speed: 'normal',
+      receipt: `REFUND_${order.orderNumber}`,
+      idempotencyKey: `REFUND_${order._id}`,
+      notes: {
+        orderId: String(order._id),
+        orderNumber: order.orderNumber,
+      },
+    });
+
+    /**
+     * ==========================================================
+     * 10. VALIDATE RAZORPAY RESPONSE
+     * ==========================================================
+     */
+
+    if (!refund?.id) {
+      return res.status(502).json({
+        success: false,
+        message: 'Razorpay did not return a refund ID.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 11. UPDATE ORDER
+     * ==========================================================
+     */
+
+    order.refundId = refund.id;
+    order.paymentStatus = 'REFUNDED';
+    order.refundedAt = new Date();
+
+    await order.save();
+
+    /**
+     * ==========================================================
+     * 12. SUCCESS
+     * ==========================================================
+     */
+
+    return res.status(200).json({
+      success: true,
+      message: 'Refund initiated successfully.',
+      data: {
+        order,
+        refund: {
+          id: refund.id,
+          paymentId: refund.payment_id,
+          amount: refund.amount,
+          currency: refund.currency,
+          status: refund.status,
+          speed: refund.speed_requested || 'normal',
+        },
+      },
+    });
+  } catch (error) {
+    console.error('RAZORPAY REFUND ERROR:', error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error?.error?.description ||
+        error?.error?.reason ||
+        error?.message ||
+        'Unable to process refund.',
+    });
+  }
+};
+
+/**
+ * ============================================================
+ * REQUEST ORDER RETURN
+ * ============================================================
+ *
+ * POST /api/orders/:orderId/return
+ *
+ * Customer can request a return only for:
+ * - Their own order
+ * - Delivered order
+ * - No existing return request
+ *
+ * ============================================================
+ */
+
+export const requestOrderReturnController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { reason, comment = '' } = req.body;
+
+    // --------------------------------------------------------
+    // 1. Validate order ID
+    // --------------------------------------------------------
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 2. Validate reason
+    // --------------------------------------------------------
+
+    const allowedReasons = [
+      'WRONG_PRODUCT',
+      'DAMAGED_PRODUCT',
+      'DEFECTIVE_PRODUCT',
+      'SIZE_ISSUE',
+      'QUALITY_ISSUE',
+      'OTHER',
+    ];
+
+    if (!reason || !allowedReasons.includes(reason)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid return reason.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 3. Validate comment length
+    // --------------------------------------------------------
+
+    if (comment && comment.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'Return comment cannot exceed 500 characters.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 4. Find customer's order
+    // --------------------------------------------------------
+
+    const order = await Order.findOne({
+      _id: orderId,
+      userId: req.user._id,
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 5. Order must be delivered
+    // --------------------------------------------------------
+
+    if (order.orderStatus !== 'DELIVERED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only delivered orders can be returned.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 6. Validate delivery date
+    // --------------------------------------------------------
+
+    if (!order.deliveredAt) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Delivery date is not available for this order. Please contact support.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 7. Return window
+    // --------------------------------------------------------
+    // Customer can request a return within 7 days
+    // from the delivery date.
+    //
+    // Example:
+    // deliveredAt = September 10
+    // return allowed through September 17
+    // --------------------------------------------------------
+
+    const RETURN_WINDOW_DAYS = 7;
+
+    const deliveredAt = new Date(order.deliveredAt);
+
+    const returnDeadline = new Date(deliveredAt);
+    returnDeadline.setDate(returnDeadline.getDate() + RETURN_WINDOW_DAYS);
+
+    const now = new Date();
+
+    if (now > returnDeadline) {
+      return res.status(400).json({
+        success: false,
+        message: 'The 7-day return window has expired.',
+        data: {
+          deliveredAt,
+          returnDeadline,
+        },
+      });
+    }
+
+    // --------------------------------------------------------
+    // 8. Prevent duplicate return request
+    // --------------------------------------------------------
+
+    if (order.returnStatus !== 'NONE') {
+      return res.status(400).json({
+        success: false,
+        message: `Return request already exists with status ${order.returnStatus}.`,
+      });
+    }
+
+    // --------------------------------------------------------
+    // 7. Create return request
+    // --------------------------------------------------------
+
+    order.returnStatus = 'REQUESTED';
+
+    order.returnRequest = {
+      reason,
+      comment: comment.trim(),
+      requestedAt: new Date(),
+      approvedAt: null,
+      rejectedAt: null,
+      completedAt: null,
+      rejectionReason: '',
+    };
+
+    await order.save();
+
+    // --------------------------------------------------------
+    // 8. Response
+    // --------------------------------------------------------
+
+    return res.status(201).json({
+      success: true,
+      message: 'Return request submitted successfully.',
+      data: {
+        order,
+      },
+    });
+  } catch (error) {
+    console.error('REQUEST RETURN ERROR:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Unable to submit return request.',
+    });
+  }
+};
+
+/**
+ * ============================================================
+ * GET ALL RETURN REQUESTS
+ * ============================================================
+ *
+ * GET /api/orders/admin/returns
+ *
+ * Only ADMIN / SUPER_ADMIN can access.
+ *
+ * Returns orders where returnStatus is REQUESTED.
+ *
+ * ============================================================
+ */
+
+export const getAllReturnRequestsController = async (req, res) => {
+  try {
+    const orders = await Order.find({
+      returnStatus: {
+        $in: ['REQUESTED', 'APPROVED', 'REJECTED', 'COMPLETED'],
+      },
+    })
+      .populate('userId', 'name email')
+      .sort({ 'returnRequest.requestedAt': -1 });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Return requests fetched successfully.',
+      data: orders,
+    });
+  } catch (error) {
+    console.error('GET RETURN REQUESTS ERROR:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Unable to fetch return requests.',
+    });
+  }
+};
+
+/**
+ * ============================================================
+ * APPROVE ORDER RETURN
+ * ============================================================
+ *
+ * PATCH /api/orders/admin/:orderId/return/approve
+ *
+ * Only ADMIN / SUPER_ADMIN can access.
+ *
+ * IMPORTANT:
+ * - Only REQUESTED returns can be approved.
+ * - No refund happens here.
+ * - No inventory is restored here.
+ * - Inventory/refund will happen when the returned product
+ *   is actually received and the return is completed.
+ *
+ * ============================================================
+ */
+
+export const approveOrderReturnController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    // --------------------------------------------------------
+    // 1. Validate order ID
+    // --------------------------------------------------------
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 2. Find order
+    // --------------------------------------------------------
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 3. Verify return request exists
+    // --------------------------------------------------------
+
+    if (order.returnStatus !== 'REQUESTED') {
+      return res.status(400).json({
+        success: false,
+        message: `Return cannot be approved because its current status is ${order.returnStatus}.`,
+      });
+    }
+
+    if (!order.returnRequest) {
+      return res.status(400).json({
+        success: false,
+        message: 'Return request details are missing.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 4. Order must still be delivered
+    // --------------------------------------------------------
+
+    if (order.orderStatus !== 'DELIVERED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only delivered orders can have an approved return.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 5. Approve return
+    // --------------------------------------------------------
+
+    order.returnStatus = 'APPROVED';
+
+    order.returnRequest.approvedAt = new Date();
+
+    await order.save();
+
+    // --------------------------------------------------------
+    // 6. Response
+    // --------------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      message: 'Return request approved successfully.',
+      data: {
+        order,
+      },
+    });
+  } catch (error) {
+    console.error('APPROVE RETURN ERROR:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Unable to approve return request.',
+    });
+  }
+};
+
+/**
+ * ============================================================
+ * REJECT ORDER RETURN
+ * ============================================================
+ *
+ * PATCH /api/orders/admin/:orderId/return/reject
+ *
+ * Only ADMIN / SUPER_ADMIN can access.
+ *
+ * Body:
+ * {
+ *   "rejectionReason": "Reason for rejection"
+ * }
+ *
+ * ============================================================
+ */
+
+export const rejectOrderReturnController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { rejectionReason = '' } = req.body;
+
+    // --------------------------------------------------------
+    // 1. Validate order ID
+    // --------------------------------------------------------
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 2. Validate rejection reason
+    // --------------------------------------------------------
+
+    if (!rejectionReason || !rejectionReason.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason is required.',
+      });
+    }
+
+    if (rejectionReason.trim().length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason cannot exceed 500 characters.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 3. Find order
+    // --------------------------------------------------------
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 4. Verify return request
+    // --------------------------------------------------------
+
+    if (order.returnStatus !== 'REQUESTED') {
+      return res.status(400).json({
+        success: false,
+        message: `Return cannot be rejected because its current status is ${order.returnStatus}.`,
+      });
+    }
+
+    if (!order.returnRequest) {
+      return res.status(400).json({
+        success: false,
+        message: 'Return request details are missing.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 5. Order must still be delivered
+    // --------------------------------------------------------
+
+    if (order.orderStatus !== 'DELIVERED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only delivered orders can have a rejected return.',
+      });
+    }
+
+    // --------------------------------------------------------
+    // 6. Reject return
+    // --------------------------------------------------------
+
+    order.returnStatus = 'REJECTED';
+
+    order.returnRequest.rejectedAt = new Date();
+
+    order.returnRequest.rejectionReason = rejectionReason.trim();
+
+    await order.save();
+
+    // --------------------------------------------------------
+    // 7. Response
+    // --------------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      message: 'Return request rejected successfully.',
+      data: {
+        order,
+      },
+    });
+  } catch (error) {
+    console.error('REJECT RETURN ERROR:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Unable to reject return request.',
+    });
+  }
+};
+
+/**
+ * ============================================================
+ * CANCEL MY ORDER
+ * ============================================================
+ *
+ * PATCH /api/orders/:orderId/cancel
+ *
+ * Rules:
+ * - Customer can cancel only their own order
+ * - Allowed: PLACED, CONFIRMED, PROCESSING
+ * - SHIPPED / DELIVERED cannot be cancelled
+ * - CANCELLED orders cannot be cancelled again
+ * - COD cancellation restores inventory
+ * - PAID ONLINE cancellation creates a Razorpay refund
+ * - Online refund remains PENDING until Razorpay webhook
+ *   confirms refund.processed
+ *
+ * Inventory:
+ * - STANDARD → restore Product.standardStock
+ * - CUSTOMIZABLE → restore Base + Strap + optional Thumb
+ * - Every restoration creates InventoryTransaction type CANCEL
+ *
+ * ============================================================
+ */
+
+export const completeOrderReturnController = async (req, res) => {
+  const { orderId } = req.params;
+  const { condition, conditionComment = '' } = req.body;
+
+  // ------------------------------------------------------------
+  // 1. Validate order ID
+  // ------------------------------------------------------------
+
+  if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid order ID.',
+    });
+  }
+
+  // ------------------------------------------------------------
+  // 2. Validate return condition
+  // ------------------------------------------------------------
+
+  const allowedConditions = ['RESELLABLE', 'DAMAGED'];
+
+  if (!allowedConditions.includes(condition)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Return condition must be RESELLABLE or DAMAGED.',
+    });
+  }
+
+  if (
+    typeof conditionComment !== 'string' ||
+    conditionComment.trim().length > 500
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Condition comment must not exceed 500 characters.',
+    });
+  }
+
+  if (condition === 'DAMAGED' && !conditionComment.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Condition comment is required for damaged returns.',
+    });
+  }
+
+  const normalizedConditionComment = conditionComment.trim();
+
+  const session = await mongoose.startSession();
+
+  let refund = null;
+  let completedOrder = null;
+  let shouldCreateRefund = false;
+
+  try {
+    // ----------------------------------------------------------
+    // 3. Read order
+    // ----------------------------------------------------------
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 4. Validate return state
+    // ----------------------------------------------------------
+
+    const isNewCompletion = order.returnStatus === 'APPROVED';
+
+    const isRefundRetry =
+      order.returnStatus === 'COMPLETED' &&
+      order.paymentMethod === 'ONLINE' &&
+      order.refundStatus !== 'PROCESSED' &&
+      order.paymentStatus !== 'REFUNDED';
+
+    if (!isNewCompletion && !isRefundRetry) {
+      return res.status(400).json({
+        success: false,
+        message: `Return cannot be completed because its current status is ${order.returnStatus}.`,
+      });
+    }
+
+    if (!order.returnRequest) {
+      return res.status(400).json({
+        success: false,
+        message: 'Return request details are missing.',
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 5. Order must be delivered
+    // ----------------------------------------------------------
+
+    if (order.orderStatus !== 'DELIVERED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only delivered orders can be completed as returned.',
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 6. Online payment validation
+    // ----------------------------------------------------------
+
+    if (order.paymentMethod === 'ONLINE') {
+      if (order.paymentProvider !== 'RAZORPAY') {
+        return res.status(400).json({
+          success: false,
+          message: 'Unsupported online payment provider.',
+        });
+      }
+
+      if (!order.razorpayPaymentId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Razorpay payment ID is missing.',
+        });
+      }
+
+      if (
+        order.paymentStatus !== 'PAID' &&
+        order.paymentStatus !== 'REFUNDED'
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: `Online payment cannot be refunded because its current status is ${order.paymentStatus}.`,
+        });
+      }
+
+      // --------------------------------------------------------
+      // If refund already processed, nothing more to refund.
+      // --------------------------------------------------------
+
+      if (
+        order.refundStatus === 'PROCESSED' ||
+        order.paymentStatus === 'REFUNDED'
+      ) {
+        shouldCreateRefund = false;
+      }
+
+      // --------------------------------------------------------
+      // Existing pending refund
+      // Do NOT create another refund.
+      // --------------------------------------------------------
+      else if (order.refundStatus === 'PENDING' && order.refundId) {
+        shouldCreateRefund = false;
+      }
+
+      // --------------------------------------------------------
+      // New refund
+      // --------------------------------------------------------
+      else if (order.paymentStatus === 'PAID' && !order.refundId) {
+        shouldCreateRefund = true;
+      }
+
+      // --------------------------------------------------------
+      // Previous refund failed.
+      //
+      // We allow another attempt using a new receipt/idempotency
+      // value because the previous refund reached FAILED state.
+      // --------------------------------------------------------
+      else if (order.refundStatus === 'FAILED') {
+        shouldCreateRefund = true;
+      }
+    }
+
+    // ----------------------------------------------------------
+    // 7. For an already completed return, only refund retry
+    // ----------------------------------------------------------
+
+    if (!isNewCompletion) {
+      if (order.paymentMethod !== 'ONLINE') {
+        return res.status(400).json({
+          success: false,
+          message: 'This return has already been completed.',
+        });
+      }
+
+      if (!shouldCreateRefund) {
+        return res.status(200).json({
+          success: true,
+          message:
+            order.refundStatus === 'PENDING'
+              ? 'Return is completed and refund is currently being processed.'
+              : 'Return and refund have already been completed.',
+          data: {
+            order,
+            refund: null,
+          },
+        });
+      }
+    }
+
+    // ----------------------------------------------------------
+    // 8. Start MongoDB transaction
+    //
+    // IMPORTANT:
+    // Razorpay is NOT called inside this transaction.
+    //
+    // This prevents an external Razorpay refund from being
+    // created while the MongoDB transaction can still roll back.
+    // ----------------------------------------------------------
+
+    if (isNewCompletion) {
+      await session.withTransaction(async () => {
+        // ------------------------------------------------------
+        // Re-read order inside transaction
+        // ------------------------------------------------------
+
+        const currentOrder = await Order.findById(orderId).session(session);
+
+        if (!currentOrder) {
+          throw new Error('Order not found.');
+        }
+
+        if (currentOrder.returnStatus !== 'APPROVED') {
+          throw new Error(
+            `Return cannot be completed because its current status is ${currentOrder.returnStatus}.`,
+          );
+        }
+
+        if (!currentOrder.returnRequest) {
+          throw new Error('Return request details are missing.');
+        }
+
+        if (currentOrder.orderStatus !== 'DELIVERED') {
+          throw new Error(
+            'Only delivered orders can be completed as returned.',
+          );
+        }
+
+        const inventoryEntries = [];
+
+        // ------------------------------------------------------
+        // 9. Process inventory
+        //
+        // RESELLABLE:
+        //   restore stock
+        //
+        // DAMAGED:
+        //   DO NOT restore stock
+        //   create DAMAGE audit records
+        // ------------------------------------------------------
+
+        for (const item of currentOrder.items) {
+          const quantity = Number(item.quantity);
+
+          if (!Number.isInteger(quantity) || quantity < 1) {
+            throw new Error(`Invalid quantity for ${item.name}.`);
+          }
+
+          // ====================================================
+          // STANDARD PRODUCT
+          // ====================================================
+
+          if (item.productType === 'STANDARD') {
+            if (!item.variantId) {
+              throw new Error(
+                `Inventory information is missing for ${item.name}.`,
+              );
+            }
+
+            const product = await Product.findOne({
+              _id: item.productId,
+              productType: 'STANDARD',
+              standardStock: {
+                $elemMatch: {
+                  _id: item.variantId,
+                  size: String(item.size),
+                },
+              },
+            }).session(session);
+
+            if (!product) {
+              throw new Error(`Unable to process inventory for ${item.name}.`);
+            }
+
+            const variant = product.standardStock.id(item.variantId);
+
+            if (!variant) {
+              throw new Error(`Inventory variant not found for ${item.name}.`);
+            }
+
+            const previousStock = Number(variant.stockQuantity || 0);
+
+            // --------------------------------------------------
+            // RESELLABLE
+            // --------------------------------------------------
+
+            if (condition === 'RESELLABLE') {
+              const newStock = previousStock + quantity;
+
+              variant.stockQuantity = newStock;
+
+              await product.save({
+                session,
+              });
+
+              inventoryEntries.push({
+                type: 'RETURN',
+                itemType: 'STANDARD',
+                productId: product._id,
+                variantId: variant._id,
+                size: String(item.size),
+                quantity,
+                previousStock,
+                newStock,
+                performedBy: req.userId,
+                orderId: currentOrder._id,
+                reason:
+                  normalizedConditionComment ||
+                  'Stock restored after customer return.',
+              });
+            }
+
+            // --------------------------------------------------
+            // DAMAGED
+            // --------------------------------------------------
+            else {
+              inventoryEntries.push({
+                type: 'DAMAGE',
+                itemType: 'STANDARD',
+                productId: product._id,
+                variantId: variant._id,
+                size: String(item.size),
+                quantity,
+                previousStock,
+                newStock: previousStock,
+                performedBy: req.userId,
+                orderId: currentOrder._id,
+                reason: normalizedConditionComment,
+              });
+            }
+
+            continue;
+          }
+
+          // ====================================================
+          // CUSTOMIZABLE PRODUCT
+          // ====================================================
+
+          if (item.productType !== 'CUSTOMIZABLE') {
+            throw new Error(`Unsupported product type for ${item.name}.`);
+          }
+
+          const components = [
+            {
+              type: 'BASE',
+              model: Base,
+              data: item.base,
+            },
+            {
+              type: 'STRAP',
+              model: Strap,
+              data: item.strap,
+            },
+            {
+              type: 'THUMB',
+              model: Thumb,
+              data: item.thumb,
+            },
+          ];
+
+          // ----------------------------------------------------
+          // BASE / STRAP / THUMB
+          // ----------------------------------------------------
+
+          for (const component of components) {
+            // Thumb is optional.
+            if (!component.data) {
+              continue;
+            }
+
+            const { componentId, colorId, variantId } = component.data;
+
+            if (!componentId || !colorId || !variantId) {
+              throw new Error(
+                `Inventory information is missing for ${item.name}.`,
+              );
+            }
+
+            const componentDoc = await component.model
+              .findOne({
+                _id: componentId,
+                colors: {
+                  $elemMatch: {
+                    _id: colorId,
+                    variants: {
+                      $elemMatch: {
+                        _id: variantId,
+                        size: String(item.size),
+                      },
+                    },
+                  },
+                },
+              })
+              .session(session);
+
+            if (!componentDoc) {
+              throw new Error(
+                `Unable to process ${component.type.toLowerCase()} inventory for ${item.name}.`,
+              );
+            }
+
+            const color = componentDoc.colors.id(colorId);
+
+            const variant = color?.variants.id(variantId);
+
+            if (!color || !variant) {
+              throw new Error(
+                `${component.type} inventory variant not found for ${item.name}.`,
+              );
+            }
+
+            const previousStock = Number(variant.stockQuantity || 0);
+
+            // --------------------------------------------------
+            // RESELLABLE
+            // --------------------------------------------------
+
+            if (condition === 'RESELLABLE') {
+              const newStock = previousStock + quantity;
+
+              variant.stockQuantity = newStock;
+
+              await componentDoc.save({
+                session,
+              });
+
+              inventoryEntries.push({
+                type: 'RETURN',
+                itemType: component.type,
+                componentId: componentDoc._id,
+                colorId: color._id,
+                variantId: variant._id,
+                size: String(item.size),
+                quantity,
+                previousStock,
+                newStock,
+                performedBy: req.userId,
+                orderId: currentOrder._id,
+                reason:
+                  normalizedConditionComment ||
+                  'Stock restored after customer return.',
+              });
+            }
+
+            // --------------------------------------------------
+            // DAMAGED
+            // --------------------------------------------------
+            else {
+              // IMPORTANT:
+              // Do NOT increase stockQuantity.
+              // This item is not sellable.
+
+              inventoryEntries.push({
+                type: 'DAMAGE',
+                itemType: component.type,
+                componentId: componentDoc._id,
+                colorId: color._id,
+                variantId: variant._id,
+                size: String(item.size),
+                quantity,
+                previousStock,
+                newStock: previousStock,
+                performedBy: req.userId,
+                orderId: currentOrder._id,
+                reason: normalizedConditionComment,
+              });
+            }
+          }
+        }
+
+        // ------------------------------------------------------
+        // 10. Create inventory audit records
+        // ------------------------------------------------------
+
+        if (inventoryEntries.length > 0) {
+          await InventoryTransaction.create(inventoryEntries, {
+            session,
+            ordered: true,
+          });
+        }
+
+        // ------------------------------------------------------
+        // 11. Save return information
+        // ------------------------------------------------------
+
+        currentOrder.returnRequest.receivedAt =
+          currentOrder.returnRequest.receivedAt || new Date();
+
+        currentOrder.returnRequest.condition = condition;
+
+        currentOrder.returnRequest.conditionComment =
+          normalizedConditionComment;
+
+        currentOrder.returnRequest.completedAt = new Date();
+
+        currentOrder.returnStatus = 'COMPLETED';
+
+        // ------------------------------------------------------
+        // 12. Online refund starts as PENDING
+        //
+        // Actual final REFUNDED status will be handled by
+        // Razorpay refund webhook.
+        // ------------------------------------------------------
+
+        if (currentOrder.paymentMethod === 'ONLINE') {
+          const refundAmountPaise = Math.round(
+            Number(currentOrder.totalAmount) * 100,
+          );
+
+          if (!Number.isFinite(refundAmountPaise) || refundAmountPaise <= 0) {
+            throw new Error('Invalid refund amount.');
+          }
+
+          if (currentOrder.paymentMethod === 'ONLINE') {
+            const alreadyRefunded =
+              currentOrder.refundStatus === 'PROCESSED' ||
+              currentOrder.paymentStatus === 'REFUNDED';
+
+            if (!alreadyRefunded) {
+              const refundAmountPaise = Math.round(
+                Number(currentOrder.totalAmount) * 100,
+              );
+
+              if (
+                !Number.isFinite(refundAmountPaise) ||
+                refundAmountPaise <= 0
+              ) {
+                throw new Error('Invalid refund amount.');
+              }
+
+              currentOrder.refundAmount = refundAmountPaise / 100;
+              currentOrder.refundStatus = 'PENDING';
+              currentOrder.refundFailureReason = '';
+            }
+          }
+
+          // Do not set paymentStatus = REFUNDED here.
+          //
+          // Razorpay webhook will do that after
+          // refund.processed.
+        }
+
+        await currentOrder.save({
+          session,
+        });
+
+        completedOrder = currentOrder;
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 13. Create Razorpay refund AFTER MongoDB transaction
+    //
+    // This avoids:
+    //
+    // Razorpay refund SUCCESS
+    // +
+    // MongoDB transaction ROLLBACK
+    //
+    // which would leave the system inconsistent.
+    // ----------------------------------------------------------
+
+    if (order.paymentMethod === 'ONLINE' && shouldCreateRefund) {
+      const refundAmountPaise = Math.round(Number(order.totalAmount) * 100);
+
+      if (!Number.isFinite(refundAmountPaise) || refundAmountPaise <= 0) {
+        throw new Error('Invalid refund amount.');
+      }
+
+      let refundIdempotencyKey = `RETURN_${order._id}`;
+
+      let refundReceipt = `RETURN_${order.orderNumber}`;
+
+      // --------------------------------------------------------
+      // If previous refund attempt FAILED, create a new unique
+      // refund request identifier.
+      //
+      // This avoids treating a previous failed refund as the
+      // same new attempt.
+      // --------------------------------------------------------
+
+      if (order.refundStatus === 'FAILED') {
+        const retryToken = new Date().getTime();
+
+        refundIdempotencyKey = `RETURN_${order._id}_${retryToken}`;
+
+        refundReceipt = `RETURN_${order.orderNumber}_${retryToken}`;
+      }
+
+      try {
+        refund = await createRazorpayRefund({
+          paymentId: order.razorpayPaymentId,
+          amount: refundAmountPaise,
+          speed: 'normal',
+          receipt: refundReceipt,
+          idempotencyKey: refundIdempotencyKey,
+          notes: {
+            orderId: String(order._id),
+            orderNumber: order.orderNumber,
+            reason: 'Customer return completed',
+            condition,
+          },
+        });
+
+        if (!refund?.id) {
+          throw new Error('Razorpay did not return a refund ID.');
+        }
+
+        // ------------------------------------------------------
+        // Save refund ID and amount.
+        //
+        // IMPORTANT:
+        // Do not mark payment REFUNDED here.
+        // Webhook handles final state.
+        // ------------------------------------------------------
+
+        const refundUpdate = {
+          refundId: refund.id,
+          refundAmount: Number(refund.amount || 0) / 100,
+          refundStatus: 'PENDING',
+          refundFailureReason: '',
+        };
+
+        // ------------------------------------------------------
+        // Do not overwrite a webhook that already moved the
+        // refund to PROCESSED / paymentStatus REFUNDED.
+        // ------------------------------------------------------
+
+        const latestOrder = await Order.findById(orderId);
+
+        if (latestOrder) {
+          if (
+            latestOrder.refundStatus !== 'PROCESSED' &&
+            latestOrder.paymentStatus !== 'REFUNDED'
+          ) {
+            await Order.findByIdAndUpdate(
+              orderId,
+              {
+                $set: refundUpdate,
+              },
+              {
+                new: true,
+              },
+            );
+          }
+        }
+      } catch (refundError) {
+        console.error('RETURN RAZORPAY REFUND ERROR:', refundError);
+
+        // ------------------------------------------------------
+        // Return is already completed and inventory transaction
+        // has already committed.
+        //
+        // Mark refund as FAILED so it can be retried/reconciled.
+        // ------------------------------------------------------
+
+        await Order.findByIdAndUpdate(orderId, {
+          $set: {
+            refundStatus: 'FAILED',
+            refundFailureReason:
+              refundError?.message || 'Razorpay refund creation failed.',
+          },
+        });
+
+        return res.status(502).json({
+          success: false,
+          message:
+            'Return was completed, but the Razorpay refund could not be initiated. Refund status is marked FAILED for retry.',
+          data: {
+            order: await Order.findById(orderId),
+          },
+        });
+      }
+    }
+
+    // ----------------------------------------------------------
+    // 14. Get final order
+    // ----------------------------------------------------------
+
+    const finalOrder = await Order.findById(orderId);
+
+    if (!finalOrder) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found after return completion.',
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 15. Build refund response
+    // ----------------------------------------------------------
+
+    let refundResponse = null;
+
+    if (refund) {
+      refundResponse = {
+        id: refund.id,
+        paymentId: refund.payment_id,
+        amount: refund.amount,
+        currency: refund.currency,
+        status: refund.status,
+        speed: refund.speed_requested || 'normal',
+      };
+    }
+
+    // ----------------------------------------------------------
+    // 16. Final response
+    // ----------------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      message:
+        finalOrder.paymentMethod === 'ONLINE'
+          ? finalOrder.refundStatus === 'PROCESSED' ||
+            finalOrder.paymentStatus === 'REFUNDED'
+            ? 'Return completed and refund processed successfully.'
+            : 'Return completed successfully. Refund is being processed.'
+          : 'Return completed successfully.',
+      data: {
+        order: finalOrder,
+        refund: refundResponse,
+      },
+    });
+  } catch (error) {
+    console.error('COMPLETE RETURN ERROR:', error);
+
+    if (error.statusCode === 409) {
+      return res.status(409).json({
+        success: false,
+        message:
+          'The refund is currently being processed by Razorpay. Please try again shortly.',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to complete return request.',
+    });
+  } finally {
+    await session.endSession();
   }
 };

@@ -9,8 +9,10 @@ import {
   MdOutlineShoppingBag,
   MdOutlineInventory2,
 } from 'react-icons/md';
+import { FiRotateCcw } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { AiOutlineProduct } from 'react-icons/ai';
+import { RiCoupon2Line } from 'react-icons/ri';
 
 const NAVIGATION_ITEMS = [
   {
@@ -25,6 +27,13 @@ const NAVIGATION_ITEMS = [
     label: 'Orders',
     icon: <MdOutlineShoppingBag size={20} />,
     href: '/dashboard/orders',
+    roles: ['SUPER_ADMIN', 'ADMIN'],
+  },
+  {
+    id: 'return',
+    label: 'Return',
+    icon: <FiRotateCcw size={20} />,
+    href: '/dashboard/return',
     roles: ['SUPER_ADMIN', 'ADMIN'],
   },
   {
@@ -112,6 +121,13 @@ const NAVIGATION_ITEMS = [
         roles: ['SUPER_ADMIN', 'ADMIN'],
       },
     ],
+  },
+  {
+    id: 'coupon',
+    label: 'Coupon',
+    icon: <RiCoupon2Line size={20} />,
+    href: '/dashboard/coupon',
+    roles: ['SUPER_ADMIN'],
   },
 ];
 

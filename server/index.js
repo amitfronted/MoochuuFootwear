@@ -19,6 +19,8 @@ import notificationRouter from './routes/notification.routes.js';
 import dashboardRouter from './routes/dashboard.routes.js';
 import inventoryRouter from './routes/inventory.routes.js';
 import { razorpayWebhookController } from './controllers/razorpayWebhook.controller.js';
+import couponRouter from './routes/coupon.routes.js';
+import { startReservationExpiryJob } from './jobs/releaseExpiredReservations.js';
 
 const app = express();
 const PORT = process.env.PORT || 7000;
@@ -77,9 +79,11 @@ app.use('/api/orders', orderRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/inventory', inventoryRouter);
+app.use('/api/coupons', couponRouter);
 
 connectDb().then(() => {
   app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    startReservationExpiryJob();
   });
 });

@@ -1,8 +1,10 @@
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 
 import PaymentAttempt from '../models/paymentAttempt.model.js';
 import Order from '../models/order.model.js';
 import RazorpayWebhookEvent from '../models/razorpayWebhookEvent.model.js';
+import { releaseStockReservation } from '../utils/stockReservation.js';
 
 const getPaymentEntity = (payload) => {
   return payload?.payload?.payment?.entity || null;
@@ -10,6 +12,10 @@ const getPaymentEntity = (payload) => {
 
 const getOrderEntity = (payload) => {
   return payload?.payload?.order?.entity || null;
+};
+
+const getRefundEntity = (payload) => {
+  return payload?.payload?.refund?.entity || null;
 };
 
 const getFailureReason = (payment) => {
@@ -164,9 +170,14 @@ const processPaymentCaptured = async (payload) => {
    *
    * Keep PaymentAttempt as PROCESSING.
    */
+  // Only move CREATED -> PROCESSING.
+  // Do not overwrite a concurrent verify flow that already moved the
+  // attempt to PAID, and do not move a terminal FAILED/EXPIRED attempt
+  // backwards.
   await PaymentAttempt.updateOne(
     {
       _id: paymentAttempt._id,
+      status: 'CREATED',
     },
     {
       $set: {
@@ -187,63 +198,106 @@ const processPaymentFailed = async (payload) => {
     );
   }
 
-  const paymentAttempt = await PaymentAttempt.findOne({
-    razorpayOrderId: payment.order_id,
-  });
+  const session = await mongoose.startSession();
 
-  if (!paymentAttempt) {
-    throw new Error(
-      `PaymentAttempt not found for Razorpay order ${payment.order_id}.`,
-    );
-  }
+  try {
+    await session.withTransaction(async () => {
+      const paymentAttempt = await PaymentAttempt.findOne({
+        razorpayOrderId: payment.order_id,
+      }).session(session);
 
-  /**
-   * IMPORTANT:
-   *
-   * Never change an already completed payment back to FAILED.
-   *
-   * This protects against webhook events arriving out of order.
-   */
-  if (paymentAttempt.status === 'PAID' && paymentAttempt.orderId) {
-    return;
-  }
+      if (!paymentAttempt) {
+        throw new Error(
+          `PaymentAttempt not found for Razorpay order ${payment.order_id}.`,
+        );
+      }
 
-  const failureReason = getFailureReason(payment);
+      if (
+        !isValidAmountAndCurrency({
+          amount: payment.amount,
+          currency: payment.currency,
+          paymentAttempt,
+        })
+      ) {
+        throw new Error(
+          `Webhook payment amount/currency mismatch for ${payment.order_id}.`,
+        );
+      }
 
-  await PaymentAttempt.updateOne(
-    {
-      _id: paymentAttempt._id,
-    },
-    {
-      $set: {
+      /**
+       * A captured payment moves the attempt to PROCESSING until the
+       * verification/finalization flow marks it PAID. Do not let a
+       * late/out-of-order payment.failed event release stock or move
+       * a captured payment back to FAILED.
+       */
+      if (
+        paymentAttempt.status === 'PAID' ||
+        paymentAttempt.status === 'PROCESSING' ||
+        paymentAttempt.reservationStatus === 'COMMITTED'
+      ) {
+        return;
+      }
+
+      /**
+       * If the reservation is still active, release it in the same
+       * transaction as the PaymentAttempt state change.
+       *
+       * This makes payment failure idempotent:
+       * RESERVED -> RELEASED only once.
+       */
+      console.log('PAYMENT FAILED RELEASE CHECK:', {
+        paymentAttemptId: paymentAttempt._id.toString(),
+        razorpayOrderId: paymentAttempt.razorpayOrderId,
         razorpayPaymentId: payment.id,
-        status: 'FAILED',
-        failureReason,
-      },
-    },
-  );
+        status: paymentAttempt.status,
+        reservationStatus: paymentAttempt.reservationStatus,
+        stockReservations: paymentAttempt.stockReservations,
+      });
+      if (paymentAttempt.reservationStatus === 'RESERVED') {
+        console.log('RELEASING STOCK RESERVATION...');
+        await releaseStockReservation({
+          reservations: paymentAttempt.stockReservations,
+          session,
+        });
+        console.log('STOCK RESERVATION RELEASED');
 
-  /**
-   * Normally your online Order is created only after successful
-   * payment verification, so orderId should not exist here.
-   *
-   * If an order already exists, safely mark its payment as failed.
-   */
-  if (paymentAttempt.orderId) {
-    await Order.updateOne(
-      {
-        _id: paymentAttempt.orderId,
-      },
-      {
-        $set: {
-          paymentStatus: 'FAILED',
-          paymentFailedAt: new Date(),
-          paymentFailureReason: failureReason,
-          razorpayPaymentId: payment.id,
-          paymentId: payment.id,
-        },
-      },
-    );
+        paymentAttempt.reservationStatus = 'RELEASED';
+        paymentAttempt.reservationReleasedAt = new Date();
+      }
+
+      const failureReason = getFailureReason(payment);
+
+      paymentAttempt.razorpayPaymentId = payment.id;
+      paymentAttempt.status = 'FAILED';
+      paymentAttempt.failureReason = failureReason;
+
+      await paymentAttempt.save({ session });
+
+      /**
+       * Normally the online order is created only after successful
+       * payment verification. If an order already exists, keep its
+       * payment state consistent as well.
+       */
+      if (paymentAttempt.orderId) {
+        await Order.updateOne(
+          {
+            _id: paymentAttempt.orderId,
+          },
+          {
+            $set: {
+              paymentStatus: 'FAILED',
+              paymentFailedAt: new Date(),
+              paymentFailureReason: failureReason,
+              razorpayPaymentId: payment.id,
+              paymentId: payment.id,
+            },
+          },
+          { session },
+        );
+      }
+    });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -304,9 +358,13 @@ const processOrderPaid = async (payload) => {
    * order creation can still be completed by the verification
    * endpoint.
    */
+  // Only move CREATED -> PROCESSING. This prevents an out-of-order
+  // order.paid webhook from overwriting a PAID attempt that the frontend
+  // verification flow has already finalized.
   await PaymentAttempt.updateOne(
     {
       _id: paymentAttempt._id,
+      status: 'CREATED',
     },
     {
       $set: {
@@ -320,6 +378,216 @@ const processOrderPaid = async (payload) => {
       },
     },
   );
+};
+
+const processRefundEvent = async (event, payload) => {
+  const refund = getRefundEntity(payload);
+
+  if (!refund?.id) {
+    throw new Error(
+      `Invalid ${event} webhook: Razorpay refund information missing.`,
+    );
+  }
+
+  if (!refund.payment_id) {
+    throw new Error(`Invalid ${event} webhook: Razorpay payment ID missing.`);
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Find order using refund ID first.
+   * ------------------------------------------------------------
+   */
+
+  let order = await Order.findOne({
+    refundId: refund.id,
+  });
+
+  /*
+   * ------------------------------------------------------------
+   * Fallback to Razorpay payment ID.
+   * ------------------------------------------------------------
+   */
+
+  if (!order) {
+    order = await Order.findOne({
+      razorpayPaymentId: refund.payment_id,
+    });
+  }
+
+  if (!order) {
+    throw new Error(`Order not found for Razorpay refund ${refund.id}.`);
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Validate payment method/provider.
+   * ------------------------------------------------------------
+   */
+
+  if (order.paymentMethod !== 'ONLINE') {
+    throw new Error(
+      `Refund ${refund.id} belongs to a non-online order ${order._id}.`,
+    );
+  }
+
+  if (order.paymentProvider !== 'RAZORPAY') {
+    throw new Error(
+      `Refund ${refund.id} belongs to an unsupported payment provider.`,
+    );
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Validate Razorpay payment ID.
+   * ------------------------------------------------------------
+   */
+
+  if (
+    order.razorpayPaymentId &&
+    order.razorpayPaymentId !== refund.payment_id
+  ) {
+    throw new Error(`Refund payment mismatch for order ${order._id}.`);
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Validate refund amount.
+   *
+   * Razorpay uses paise.
+   * Order.refundAmount uses rupees.
+   * ------------------------------------------------------------
+   */
+
+  const expectedRefundAmount = Number(order.refundAmount);
+
+  if (!Number.isFinite(expectedRefundAmount) || expectedRefundAmount <= 0) {
+    throw new Error(`Invalid stored refund amount for order ${order._id}.`);
+  }
+
+  if (refund.amount === undefined || refund.amount === null) {
+    throw new Error(`Refund amount missing for Razorpay refund ${refund.id}.`);
+  }
+
+  const expectedAmountPaise = Math.round(expectedRefundAmount * 100);
+
+  if (Number(refund.amount) !== expectedAmountPaise) {
+    throw new Error(`Refund amount mismatch for order ${order._id}.`);
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * REFUND CREATED
+   *
+   * Created means Razorpay accepted the refund request.
+   * It is NOT final yet.
+   *
+   * Never downgrade a processed/refunded order.
+   * ------------------------------------------------------------
+   */
+
+  if (event === 'refund.created') {
+    await Order.updateOne(
+      {
+        _id: order._id,
+
+        // Prevent:
+        // PROCESSED -> PENDING
+        // REFUNDED -> PENDING
+        refundStatus: {
+          $nin: ['PROCESSED'],
+        },
+
+        paymentStatus: {
+          $ne: 'REFUNDED',
+        },
+      },
+      {
+        $set: {
+          refundId: refund.id,
+          refundStatus: 'PENDING',
+          refundFailureReason: '',
+        },
+      },
+    );
+
+    return;
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * REFUND PROCESSED
+   *
+   * This is the final successful refund state.
+   * ------------------------------------------------------------
+   */
+
+  if (event === 'refund.processed') {
+    const processedAt = refund.processed_at
+      ? new Date(refund.processed_at * 1000)
+      : refund.created_at
+        ? new Date(refund.created_at * 1000)
+        : new Date();
+
+    await Order.updateOne(
+      {
+        _id: order._id,
+      },
+      {
+        $set: {
+          refundId: refund.id,
+          refundStatus: 'PROCESSED',
+          paymentStatus: 'REFUNDED',
+          refundFailureReason: '',
+          refundedAt: processedAt,
+        },
+      },
+    );
+
+    return;
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * REFUND FAILED
+   *
+   * Do not downgrade an already processed refund.
+   * ------------------------------------------------------------
+   */
+
+  if (event === 'refund.failed') {
+    const failureReason =
+      refund?.error_description ||
+      refund?.error_reason ||
+      refund?.error_code ||
+      'Razorpay refund failed.';
+
+    await Order.updateOne(
+      {
+        _id: order._id,
+
+        // Ignore a late failure event after successful processing.
+        refundStatus: {
+          $ne: 'PROCESSED',
+        },
+
+        paymentStatus: {
+          $ne: 'REFUNDED',
+        },
+      },
+      {
+        $set: {
+          refundId: refund.id,
+          refundStatus: 'FAILED',
+          refundFailureReason: failureReason,
+        },
+      },
+    );
+
+    return;
+  }
+
+  throw new Error(`Unsupported refund event: ${event}`);
 };
 
 const processWebhookEvent = async (event, payload) => {
@@ -336,8 +604,26 @@ const processWebhookEvent = async (event, payload) => {
       await processOrderPaid(payload);
       break;
 
+    /*
+     * ----------------------------------------------------------
+     * REFUND EVENTS
+     * ----------------------------------------------------------
+     */
+
+    case 'refund.created':
+      await processRefundEvent(event, payload);
+      break;
+
+    case 'refund.processed':
+      await processRefundEvent(event, payload);
+      break;
+
+    case 'refund.failed':
+      await processRefundEvent(event, payload);
+      break;
+
     default:
-      /**
+      /*
        * We still store unknown events as PROCESSED.
        *
        * This prevents the same unsupported event from being

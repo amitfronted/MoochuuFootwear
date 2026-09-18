@@ -11,3 +11,13 @@ export const fetchProductById = async (productId) => {
   const response = await api.get(`/products/${productId}`);
   return response.data;
 };
+
+// Validate customer coupon
+export const validateCoupon = async ({ code, subtotal }) => {
+  const response = await api.post('/coupons/validate', {
+    code,
+    subtotal,
+  });
+
+  return response.data;
+};
