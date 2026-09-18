@@ -15,6 +15,7 @@ import UserModel from '../models/user.model.js';
 import InventoryTransaction from '../models/inventoryTransaction.model.js';
 import IdempotencyKey from '../models/idempotency.model.js';
 import Coupon from '../models/coupon.model.js';
+import Refund from '../models/refund.model.js';
 
 import sendEmailFun from '../config/sendEmail.js';
 import { orderConfirmationEmail } from '../utils/orderConfirmationTemplate.js';
@@ -4908,15 +4909,17 @@ export const markCodPaymentAsPaidController = async (req, res) => {
  */
 
 export const refundRazorpayOrderController = async (req, res) => {
+  const session = await mongoose.startSession();
+
   try {
     const { orderId } = req.params;
+    const { amount, reason = '' } = req.body || {};
 
     /**
      * ==========================================================
      * 1. VALIDATE ORDER ID
      * ==========================================================
      */
-
     if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({
         success: false,
@@ -4926,10 +4929,72 @@ export const refundRazorpayOrderController = async (req, res) => {
 
     /**
      * ==========================================================
-     * 2. FIND ORDER
+     * 2. VALIDATE REFUND IDEMPOTENCY KEY
+     * ==========================================================
+     *
+     * One refund request = one unique key.
+     *
+     * Reusing the same key returns the same local refund record
+     * instead of creating another refund.
+     */
+    const idempotencyKey =
+      req.get('Idempotency-Key') || req.get('X-Idempotency-Key');
+
+    if (!idempotencyKey || idempotencyKey.trim().length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid Idempotency-Key header is required.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 3. CHECK EXISTING IDEMPOTENCY RECORD
      * ==========================================================
      */
+    const existingRefund = await Refund.findOne({
+      idempotencyKey: idempotencyKey.trim(),
+    });
 
+    if (existingRefund) {
+      if (existingRefund.status === 'PROCESSED') {
+        return res.status(200).json({
+          success: true,
+          message: 'Refund already processed for this idempotency key.',
+          data: {
+            refund: existingRefund,
+          },
+        });
+      }
+
+      if (existingRefund.status === 'PENDING') {
+        return res.status(409).json({
+          success: false,
+          message:
+            'A refund request with this idempotency key is already pending.',
+          data: {
+            refund: existingRefund,
+          },
+        });
+      }
+
+      if (existingRefund.status === 'FAILED') {
+        return res.status(409).json({
+          success: false,
+          message:
+            'This refund request has already failed. Use a new Idempotency-Key to retry.',
+          data: {
+            refund: existingRefund,
+          },
+        });
+      }
+    }
+
+    /**
+     * ==========================================================
+     * 4. FIND ORDER
+     * ==========================================================
+     */
     const order = await Order.findById(orderId);
 
     if (!order) {
@@ -4941,10 +5006,9 @@ export const refundRazorpayOrderController = async (req, res) => {
 
     /**
      * ==========================================================
-     * 3. VERIFY PAYMENT METHOD
+     * 5. VERIFY PAYMENT METHOD
      * ==========================================================
      */
-
     if (order.paymentMethod !== 'ONLINE') {
       return res.status(400).json({
         success: false,
@@ -4954,10 +5018,9 @@ export const refundRazorpayOrderController = async (req, res) => {
 
     /**
      * ==========================================================
-     * 4. VERIFY PAYMENT PROVIDER
+     * 6. VERIFY PAYMENT PROVIDER
      * ==========================================================
      */
-
     if (order.paymentProvider !== 'RAZORPAY') {
       return res.status(400).json({
         success: false,
@@ -4967,10 +5030,13 @@ export const refundRazorpayOrderController = async (req, res) => {
 
     /**
      * ==========================================================
-     * 5. VERIFY PAYMENT STATUS
+     * 7. VERIFY PAYMENT STATUS
      * ==========================================================
+     *
+     * PARTIAL refunds keep paymentStatus = PAID.
+     *
+     * Therefore we only reject states that cannot be refunded.
      */
-
     if (order.paymentStatus !== 'PAID') {
       return res.status(400).json({
         success: false,
@@ -4980,10 +5046,9 @@ export const refundRazorpayOrderController = async (req, res) => {
 
     /**
      * ==========================================================
-     * 6. VERIFY RAZORPAY PAYMENT ID
+     * 8. VERIFY RAZORPAY PAYMENT ID
      * ==========================================================
      */
-
     if (!order.razorpayPaymentId) {
       return res.status(400).json({
         success: false,
@@ -4993,111 +5058,445 @@ export const refundRazorpayOrderController = async (req, res) => {
 
     /**
      * ==========================================================
-     * 7. PREVENT DUPLICATE REFUND
-     * ==========================================================
-     */
-
-    if (order.refundId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Refund has already been initiated for this order.',
-        data: {
-          refundId: order.refundId,
-        },
-      });
-    }
-
-    /**
-     * ==========================================================
-     * 8. CALCULATE FULL REFUND AMOUNT
+     * 9. VALIDATE REQUESTED AMOUNT
      * ==========================================================
      *
-     * Razorpay expects the amount in paise.
+     * amount is received in RUPEES from our API.
      *
      * Example:
      *
-     * ₹999 = 99900 paise
+     * 500     -> 50000 paise
+     * 968.82  -> 96882 paise
      *
-     * ==========================================================
+     * If amount is omitted, refund the complete remaining
+     * refundable amount.
      */
+    let requestedAmountPaise = null;
 
-    const refundAmount = Math.round(Number(order.totalAmount) * 100);
+    if (amount !== undefined && amount !== null && amount !== '') {
+      const requestedAmount = Number(amount);
 
-    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid refund amount.',
-      });
+      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Refund amount must be greater than zero.',
+        });
+      }
+
+      requestedAmountPaise = Math.round(requestedAmount * 100);
+
+      if (requestedAmountPaise <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid refund amount.',
+        });
+      }
     }
 
     /**
      * ==========================================================
-     * 9. CREATE RAZORPAY REFUND
+     * 10. RESERVE REFUND AMOUNT LOCALLY
      * ==========================================================
+     *
+     * IMPORTANT:
+     *
+     * Pending refunds are included in the reserved amount.
+     *
+     * Example:
+     *
+     * Order total       ₹1768.82
+     * Refund #1 pending ₹500
+     *
+     * Remaining available:
+     * ₹1268.82
+     *
+     * This prevents another refund request from using the same
+     * amount while the first refund is still pending.
      */
+    let refundRecord;
+    let refundAmountPaise;
+    let remainingAfterReservationPaise;
 
+    await session.withTransaction(async () => {
+      const lockedOrder = await Order.findById(orderId).session(session);
+
+      if (!lockedOrder) {
+        throw new Error('ORDER_NOT_FOUND');
+      }
+
+      if (lockedOrder.paymentStatus !== 'PAID') {
+        throw new Error(`ORDER_PAYMENT_STATUS_${lockedOrder.paymentStatus}`);
+      }
+
+      /**
+       * --------------------------------------------------------
+       * Calculate captured order amount in paise
+       * --------------------------------------------------------
+       */
+      const totalAmountPaise = Math.round(
+        Number(lockedOrder.totalAmount) * 100,
+      );
+
+      if (!Number.isFinite(totalAmountPaise) || totalAmountPaise <= 0) {
+        throw new Error('INVALID_ORDER_AMOUNT');
+      }
+
+      /**
+       * --------------------------------------------------------
+       * Read all local refunds
+       * --------------------------------------------------------
+       *
+       * PENDING + PROCESSED both consume refundable capacity.
+       *
+       * FAILED refunds do not consume capacity.
+       */
+      const refundTotals = await Refund.aggregate([
+        {
+          $match: {
+            orderId: lockedOrder._id,
+            status: {
+              $in: ['PENDING', 'PROCESSED'],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalPaise: {
+              $sum: {
+                $round: [
+                  {
+                    $multiply: ['$amount', 100],
+                  },
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]).session(session);
+
+      let reservedRefundedPaise = Number(refundTotals?.[0]?.totalPaise) || 0;
+
+      /**
+       * --------------------------------------------------------
+       * Backward compatibility with legacy refund fields
+       * --------------------------------------------------------
+       *
+       * Existing old refunds may exist only on Order.
+       *
+       * We only use the legacy amount when there are no ledger
+       * refunds yet.
+       */
+      if (
+        reservedRefundedPaise === 0 &&
+        lockedOrder.refundId &&
+        Number(lockedOrder.refundAmount) > 0
+      ) {
+        reservedRefundedPaise = Math.round(
+          Number(lockedOrder.refundAmount) * 100,
+        );
+      }
+
+      const currentRemainingPaise = Math.max(
+        totalAmountPaise - reservedRefundedPaise,
+        0,
+      );
+
+      /**
+       * --------------------------------------------------------
+       * Determine this refund amount
+       * --------------------------------------------------------
+       */
+      refundAmountPaise = requestedAmountPaise ?? currentRemainingPaise;
+
+      if (!Number.isFinite(refundAmountPaise) || refundAmountPaise <= 0) {
+        throw new Error('NO_REFUNDABLE_AMOUNT');
+      }
+
+      /**
+       * --------------------------------------------------------
+       * Prevent over-refund
+       * --------------------------------------------------------
+       */
+      if (refundAmountPaise > currentRemainingPaise) {
+        const remainingAmount = currentRemainingPaise / 100;
+
+        const error = new Error('REFUND_AMOUNT_EXCEEDS_REMAINING');
+        error.remainingAmount = remainingAmount;
+
+        throw error;
+      }
+
+      /**
+       * --------------------------------------------------------
+       * Calculate remaining amount after this reservation
+       * --------------------------------------------------------
+       */
+      remainingAfterReservationPaise =
+        currentRemainingPaise - refundAmountPaise;
+
+      /**
+       * --------------------------------------------------------
+       * Create local refund ledger entry
+       * --------------------------------------------------------
+       */
+      const receipt = `REFUND_${lockedOrder._id}_${Date.now()}`;
+
+      const createdRefund = await Refund.create(
+        [
+          {
+            orderId: lockedOrder._id,
+            userId: lockedOrder.userId,
+            paymentId: lockedOrder.razorpayPaymentId,
+
+            amount: refundAmountPaise / 100,
+
+            currency: 'INR',
+
+            status: 'PENDING',
+
+            source: 'ADMIN',
+
+            reason: String(reason || '').trim(),
+
+            idempotencyKey: idempotencyKey.trim(),
+
+            razorpayReceipt: receipt,
+
+            requestedAt: new Date(),
+          },
+        ],
+        { session },
+      );
+
+      refundRecord = createdRefund[0];
+
+      /**
+       * --------------------------------------------------------
+       * Update Order summary
+       * --------------------------------------------------------
+       *
+       * totalRefundedAmount represents completed refunds only.
+       *
+       * remainingRefundableAmount includes this pending
+       * reservation.
+       */
+      lockedOrder.totalRefundedAmount = Math.max(
+        Number(lockedOrder.totalRefundedAmount) || 0,
+        reservedRefundedPaise / 100,
+      );
+
+      lockedOrder.remainingRefundableAmount =
+        remainingAfterReservationPaise / 100;
+
+      lockedOrder.refundStatus = 'PENDING';
+
+      /**
+       * Keep legacy fields updated for existing admin/order
+       * screens until those screens are migrated to Refund ledger.
+       */
+      lockedOrder.refundAmount = refundAmountPaise / 100;
+
+      await lockedOrder.save({ session });
+    });
+
+    /**
+     * ==========================================================
+     * 11. CREATE RAZORPAY REFUND
+     * ==========================================================
+     *
+     * MongoDB reservation is already committed.
+     *
+     * We deliberately call Razorpay AFTER the transaction.
+     */
     const refund = await createRazorpayRefund({
       paymentId: order.razorpayPaymentId,
-      amount: refundAmount,
+
+      amount: refundAmountPaise,
+
       speed: 'normal',
-      receipt: `REFUND_${order.orderNumber}`,
-      idempotencyKey: `REFUND_${order._id}`,
+
+      receipt: refundRecord.razorpayReceipt,
+
+      idempotencyKey: idempotencyKey.trim(),
+
       notes: {
         orderId: String(order._id),
         orderNumber: order.orderNumber,
+        refundId: String(refundRecord._id),
       },
     });
 
     /**
      * ==========================================================
-     * 10. VALIDATE RAZORPAY RESPONSE
+     * 12. VALIDATE RAZORPAY RESPONSE
      * ==========================================================
      */
-
     if (!refund?.id) {
-      return res.status(502).json({
-        success: false,
-        message: 'Razorpay did not return a refund ID.',
-      });
+      throw new Error('Razorpay did not return a refund ID.');
     }
 
     /**
      * ==========================================================
-     * 11. UPDATE ORDER
+     * 13. SAVE RAZORPAY REFUND ID
      * ==========================================================
      */
+    refundRecord.razorpayRefundId = refund.id;
 
-    order.refundId = refund.id;
-    order.paymentStatus = 'REFUNDED';
-    order.refundedAt = new Date();
+    /**
+     * Razorpay can return pending or processed.
+     *
+     * We keep our local record PENDING until the webhook
+     * confirms the final state.
+     */
+    refundRecord.status = 'PENDING';
 
-    await order.save();
+    await refundRecord.save();
+
+    /**
+     * Keep legacy Order fields synchronized.
+     */
+    await Order.updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          refundId: refund.id,
+          refundAmount: refundRecord.amount,
+          refundStatus: 'PENDING',
+          refundFailureReason: '',
+        },
+      },
+    );
 
     /**
      * ==========================================================
-     * 12. SUCCESS
+     * 14. SUCCESS
      * ==========================================================
      */
-
     return res.status(200).json({
       success: true,
+
       message: 'Refund initiated successfully.',
+
       data: {
-        order,
         refund: {
           id: refund.id,
+
+          localRefundId: refundRecord._id,
+
+          orderId: order._id,
+
           paymentId: refund.payment_id,
+
           amount: refund.amount,
+
           currency: refund.currency,
+
           status: refund.status,
+
           speed: refund.speed_requested || 'normal',
+
+          requestedAmount: refundRecord.amount,
+
+          remainingRefundableAmount: remainingAfterReservationPaise / 100,
         },
       },
     });
   } catch (error) {
     console.error('RAZORPAY REFUND ERROR:', error);
 
-    return res.status(500).json({
+    /**
+     * ==========================================================
+     * Handle known validation errors
+     * ==========================================================
+     */
+    if (error?.message === 'ORDER_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    if (error?.message?.startsWith('ORDER_PAYMENT_STATUS_')) {
+      return res.status(400).json({
+        success: false,
+        message: `Order payment status is ${error.message.replace(
+          'ORDER_PAYMENT_STATUS_',
+          '',
+        )}. Only PAID orders can be refunded.`,
+      });
+    }
+
+    if (error?.message === 'INVALID_ORDER_AMOUNT') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order amount.',
+      });
+    }
+
+    if (error?.message === 'NO_REFUNDABLE_AMOUNT') {
+      return res.status(400).json({
+        success: false,
+        message: 'No refundable amount remains for this order.',
+      });
+    }
+
+    if (error?.message === 'REFUND_AMOUNT_EXCEEDS_REMAINING') {
+      return res.status(400).json({
+        success: false,
+        message: 'Refund amount exceeds the remaining refundable amount.',
+        data: {
+          remainingRefundableAmount: error.remainingAmount,
+        },
+      });
+    }
+
+    /**
+     * ==========================================================
+     * IMPORTANT:
+     * If Razorpay fails after our local reservation,
+     * we keep the Refund record PENDING for now.
+     *
+     * The next reconciliation/webhook hardening step will
+     * handle uncertain external outcomes.
+     *
+     * For a definite Razorpay API rejection, mark it FAILED.
+     * ==========================================================
+     */
+    if (error?.razorpay) {
+      const existingPendingRefund = await Refund.findOne({
+        idempotencyKey:
+          req.get('Idempotency-Key') || req.get('X-Idempotency-Key'),
+        status: 'PENDING',
+      });
+
+      if (existingPendingRefund) {
+        existingPendingRefund.status = 'FAILED';
+
+        existingPendingRefund.failureReason =
+          error?.error?.description ||
+          error?.error?.reason ||
+          error?.message ||
+          'Razorpay refund failed.';
+
+        existingPendingRefund.failedAt = new Date();
+
+        await existingPendingRefund.save();
+
+        await Order.updateOne(
+          { _id: existingPendingRefund.orderId },
+          {
+            $set: {
+              refundStatus: 'FAILED',
+              refundFailureReason: existingPendingRefund.failureReason,
+            },
+          },
+        );
+      }
+    }
+
+    return res.status(error?.razorpay?.statusCode || 500).json({
       success: false,
       message:
         error?.error?.description ||
@@ -5105,6 +5504,8 @@ export const refundRazorpayOrderController = async (req, res) => {
         error?.message ||
         'Unable to process refund.',
     });
+  } finally {
+    await session.endSession();
   }
 };
 

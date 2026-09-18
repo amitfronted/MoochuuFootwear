@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import PaymentAttempt from '../models/paymentAttempt.model.js';
 import Order from '../models/order.model.js';
 import RazorpayWebhookEvent from '../models/razorpayWebhookEvent.model.js';
+import Refund from '../models/refund.model.js';
 import { releaseStockReservation } from '../utils/stockReservation.js';
 
 const getPaymentEntity = (payload) => {
@@ -393,21 +394,73 @@ const processRefundEvent = async (event, payload) => {
     throw new Error(`Invalid ${event} webhook: Razorpay payment ID missing.`);
   }
 
-  /*
-   * ------------------------------------------------------------
-   * Find order using refund ID first.
-   * ------------------------------------------------------------
+  /**
+   * ==========================================================
+   * 1. FIND LOCAL REFUND LEDGER
+   * ==========================================================
+   *
+   * New 12A architecture:
+   *
+   * Order
+   *   ├── Refund #1
+   *   ├── Refund #2
+   *   └── Refund #3
+   *
+   * The Razorpay refund ID is the primary correlation key.
    */
-
-  let order = await Order.findOne({
-    refundId: refund.id,
+  let localRefund = await Refund.findOne({
+    razorpayRefundId: refund.id,
   });
 
-  /*
-   * ------------------------------------------------------------
-   * Fallback to Razorpay payment ID.
-   * ------------------------------------------------------------
+  /**
+   * ==========================================================
+   * 2. FALLBACK TO PAYMENT ID
+   * ==========================================================
+   *
+   * This is useful when the webhook arrives before our API
+   * response has saved razorpayRefundId.
+   *
+   * We only accept a unique PENDING local refund whose amount
+   * matches the Razorpay refund.
    */
+  if (!localRefund && refund.notes?.refundId) {
+    localRefund = await Refund.findOne({
+      _id: refund.notes.refundId,
+      paymentId: refund.payment_id,
+    });
+  }
+
+  if (!localRefund) {
+    const pendingRefunds = await Refund.find({
+      paymentId: refund.payment_id,
+      status: 'PENDING',
+    }).sort({ createdAt: -1 });
+
+    const matchingRefunds = pendingRefunds.filter(
+      (candidate) =>
+        Math.round(Number(candidate.amount) * 100) === Number(refund.amount),
+    );
+
+    if (matchingRefunds.length === 1) {
+      localRefund = matchingRefunds[0];
+    }
+  }
+
+  /**
+   * ==========================================================
+   * 3. LEGACY FALLBACK
+   * ==========================================================
+   *
+   * Existing orders created before the Refund ledger may still
+   * have only Order.refundId/refundAmount.
+   *
+   * We support those records without breaking them.
+   */
+  let order = null;
+
+  if (localRefund) {
+    order = await Order.findById(localRefund.orderId);
+  }
 
   if (!order) {
     order = await Order.findOne({
@@ -419,12 +472,11 @@ const processRefundEvent = async (event, payload) => {
     throw new Error(`Order not found for Razorpay refund ${refund.id}.`);
   }
 
-  /*
-   * ------------------------------------------------------------
-   * Validate payment method/provider.
-   * ------------------------------------------------------------
+  /**
+   * ==========================================================
+   * 4. VALIDATE PAYMENT METHOD / PROVIDER
+   * ==========================================================
    */
-
   if (order.paymentMethod !== 'ONLINE') {
     throw new Error(
       `Refund ${refund.id} belongs to a non-online order ${order._id}.`,
@@ -437,12 +489,11 @@ const processRefundEvent = async (event, payload) => {
     );
   }
 
-  /*
-   * ------------------------------------------------------------
-   * Validate Razorpay payment ID.
-   * ------------------------------------------------------------
+  /**
+   * ==========================================================
+   * 5. VALIDATE PAYMENT ID
+   * ==========================================================
    */
-
   if (
     order.razorpayPaymentId &&
     order.razorpayPaymentId !== refund.payment_id
@@ -450,62 +501,73 @@ const processRefundEvent = async (event, payload) => {
     throw new Error(`Refund payment mismatch for order ${order._id}.`);
   }
 
-  /*
-   * ------------------------------------------------------------
-   * Validate refund amount.
-   *
-   * Razorpay uses paise.
-   * Order.refundAmount uses rupees.
-   * ------------------------------------------------------------
+  /**
+   * ==========================================================
+   * 6. VALIDATE RAZORPAY AMOUNT
+   * ==========================================================
    */
-
-  const expectedRefundAmount = Number(order.refundAmount);
-
-  if (!Number.isFinite(expectedRefundAmount) || expectedRefundAmount <= 0) {
-    throw new Error(`Invalid stored refund amount for order ${order._id}.`);
-  }
-
   if (refund.amount === undefined || refund.amount === null) {
     throw new Error(`Refund amount missing for Razorpay refund ${refund.id}.`);
   }
 
-  const expectedAmountPaise = Math.round(expectedRefundAmount * 100);
+  const razorpayAmountPaise = Number(refund.amount);
 
-  if (Number(refund.amount) !== expectedAmountPaise) {
-    throw new Error(`Refund amount mismatch for order ${order._id}.`);
+  if (!Number.isInteger(razorpayAmountPaise) || razorpayAmountPaise <= 0) {
+    throw new Error(`Invalid refund amount for Razorpay refund ${refund.id}.`);
   }
 
-  /*
-   * ------------------------------------------------------------
-   * REFUND CREATED
+  /**
+   * ==========================================================
+   * 7. REFUND CREATED
+   * ==========================================================
    *
-   * Created means Razorpay accepted the refund request.
-   * It is NOT final yet.
+   * Razorpay has accepted the refund request.
    *
-   * Never downgrade a processed/refunded order.
-   * ------------------------------------------------------------
+   * It is NOT necessarily finally processed yet.
    */
-
   if (event === 'refund.created') {
+    /**
+     * --------------------------------------------------------
+     * If we have a local ledger entry, update that entry.
+     * --------------------------------------------------------
+     */
+    if (localRefund) {
+      const localAmountPaise = Math.round(Number(localRefund.amount) * 100);
+
+      if (localAmountPaise !== razorpayAmountPaise) {
+        throw new Error(
+          `Refund amount mismatch for local refund ${localRefund._id}.`,
+        );
+      }
+
+      localRefund.razorpayRefundId = refund.id;
+
+      /**
+       * Never downgrade a processed refund.
+       */
+      if (localRefund.status !== 'PROCESSED') {
+        localRefund.status = 'PENDING';
+      }
+
+      localRefund.failureReason = '';
+
+      await localRefund.save();
+    }
+
+    /**
+     * --------------------------------------------------------
+     * Update order summary.
+     * --------------------------------------------------------
+     */
     await Order.updateOne(
       {
         _id: order._id,
-
-        // Prevent:
-        // PROCESSED -> PENDING
-        // REFUNDED -> PENDING
-        refundStatus: {
-          $nin: ['PROCESSED'],
-        },
-
-        paymentStatus: {
-          $ne: 'REFUNDED',
-        },
       },
       {
         $set: {
           refundId: refund.id,
-          refundStatus: 'PENDING',
+          refundStatus:
+            order.refundStatus === 'PROCESSED' ? 'PROCESSED' : 'PENDING',
           refundFailureReason: '',
         },
       },
@@ -514,14 +576,16 @@ const processRefundEvent = async (event, payload) => {
     return;
   }
 
-  /*
-   * ------------------------------------------------------------
-   * REFUND PROCESSED
+  /**
+   * ==========================================================
+   * 8. REFUND PROCESSED
+   * ==========================================================
    *
-   * This is the final successful refund state.
-   * ------------------------------------------------------------
+   * This means THIS refund has completed.
+   *
+   * It does NOT automatically mean the entire order has been
+   * refunded.
    */
-
   if (event === 'refund.processed') {
     const processedAt = refund.processed_at
       ? new Date(refund.processed_at * 1000)
@@ -529,6 +593,82 @@ const processRefundEvent = async (event, payload) => {
         ? new Date(refund.created_at * 1000)
         : new Date();
 
+    /**
+     * --------------------------------------------------------
+     * Update local Refund ledger.
+     * --------------------------------------------------------
+     */
+    if (localRefund) {
+      const localAmountPaise = Math.round(Number(localRefund.amount) * 100);
+
+      if (localAmountPaise !== razorpayAmountPaise) {
+        throw new Error(
+          `Refund amount mismatch for local refund ${localRefund._id}.`,
+        );
+      }
+
+      localRefund.razorpayRefundId = refund.id;
+      localRefund.status = 'PROCESSED';
+      localRefund.failureReason = '';
+      localRefund.processedAt = processedAt;
+
+      await localRefund.save();
+    }
+
+    /**
+     * --------------------------------------------------------
+     * Calculate cumulative successful refunds.
+     * --------------------------------------------------------
+     */
+    const processedRefunds = await Refund.aggregate([
+      {
+        $match: {
+          orderId: order._id,
+          status: 'PROCESSED',
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalRefunded: {
+            $sum: '$amount',
+          },
+        },
+      },
+    ]);
+
+    const totalRefundedAmount =
+      Number(processedRefunds?.[0]?.totalRefunded) || 0;
+
+    const orderTotalAmount = Number(order.totalAmount) || 0;
+
+    const remainingRefundableAmount = Math.max(
+      orderTotalAmount - totalRefundedAmount,
+      0,
+    );
+
+    /**
+     * --------------------------------------------------------
+     * Determine final order refund status.
+     * --------------------------------------------------------
+     */
+    const isFullyRefunded = remainingRefundableAmount <= 0.01;
+
+    const nextRefundStatus = isFullyRefunded ? 'PROCESSED' : 'PARTIAL';
+
+    /**
+     * --------------------------------------------------------
+     * IMPORTANT:
+     *
+     * Partial refund:
+     *
+     * paymentStatus remains PAID
+     *
+     * Full refund:
+     *
+     * paymentStatus becomes REFUNDED
+     * --------------------------------------------------------
+     */
     await Order.updateOne(
       {
         _id: order._id,
@@ -536,10 +676,24 @@ const processRefundEvent = async (event, payload) => {
       {
         $set: {
           refundId: refund.id,
-          refundStatus: 'PROCESSED',
-          paymentStatus: 'REFUNDED',
+
+          totalRefundedAmount,
+
+          remainingRefundableAmount,
+
+          refundStatus: nextRefundStatus,
+
           refundFailureReason: '',
+
           refundedAt: processedAt,
+
+          ...(isFullyRefunded
+            ? {
+                paymentStatus: 'REFUNDED',
+              }
+            : {
+                paymentStatus: 'PAID',
+              }),
         },
       },
     );
@@ -547,14 +701,11 @@ const processRefundEvent = async (event, payload) => {
     return;
   }
 
-  /*
-   * ------------------------------------------------------------
-   * REFUND FAILED
-   *
-   * Do not downgrade an already processed refund.
-   * ------------------------------------------------------------
+  /**
+   * ==========================================================
+   * 9. REFUND FAILED
+   * ==========================================================
    */
-
   if (event === 'refund.failed') {
     const failureReason =
       refund?.error_description ||
@@ -562,15 +713,92 @@ const processRefundEvent = async (event, payload) => {
       refund?.error_code ||
       'Razorpay refund failed.';
 
+    /**
+     * --------------------------------------------------------
+     * Update local Refund ledger.
+     * --------------------------------------------------------
+     */
+    if (localRefund) {
+      /**
+       * Do not downgrade a successful refund.
+       */
+      if (localRefund.status === 'PROCESSED') {
+        return;
+      }
+
+      localRefund.razorpayRefundId = refund.id;
+      localRefund.status = 'FAILED';
+      localRefund.failureReason = failureReason;
+      localRefund.failedAt = new Date();
+
+      await localRefund.save();
+
+      /**
+       * Recalculate remaining refundable amount.
+       *
+       * FAILED refunds no longer consume refundable capacity.
+       */
+      const processedRefunds = await Refund.aggregate([
+        {
+          $match: {
+            orderId: order._id,
+            status: 'PROCESSED',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalRefunded: {
+              $sum: '$amount',
+            },
+          },
+        },
+      ]);
+
+      const totalRefundedAmount =
+        Number(processedRefunds?.[0]?.totalRefunded) || 0;
+
+      const remainingRefundableAmount = Math.max(
+        Number(order.totalAmount) - totalRefundedAmount,
+        0,
+      );
+
+      await Order.updateOne(
+        {
+          _id: order._id,
+          paymentStatus: {
+            $ne: 'REFUNDED',
+          },
+        },
+        {
+          $set: {
+            refundId: refund.id,
+
+            totalRefundedAmount,
+
+            remainingRefundableAmount,
+
+            refundStatus: totalRefundedAmount > 0 ? 'PARTIAL' : 'FAILED',
+
+            refundFailureReason: failureReason,
+          },
+        },
+      );
+
+      return;
+    }
+
+    /**
+     * --------------------------------------------------------
+     * Legacy refund fallback
+     * --------------------------------------------------------
+     */
     await Order.updateOne(
       {
         _id: order._id,
-
-        // Ignore a late failure event after successful processing.
         refundStatus: {
           $ne: 'PROCESSED',
         },
-
         paymentStatus: {
           $ne: 'REFUNDED',
         },

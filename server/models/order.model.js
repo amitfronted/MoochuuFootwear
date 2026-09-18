@@ -324,7 +324,7 @@ const orderSchema = new mongoose.Schema(
     },
     refundStatus: {
       type: String,
-      enum: ['NONE', 'PENDING', 'PROCESSED', 'FAILED'],
+      enum: ['NONE', 'PENDING', 'PARTIAL', 'PROCESSED', 'FAILED'],
       default: 'NONE',
       index: true,
     },
@@ -338,6 +338,17 @@ const orderSchema = new mongoose.Schema(
     refundedAt: {
       type: Date,
       default: null,
+    },
+    totalRefundedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    remainingRefundableAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     orderStatus: {
       type: String,

@@ -23,6 +23,12 @@ export const createRazorpayRefund = async ({
     throw new Error('Razorpay payment ID is required');
   }
 
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new Error(
+      'Refund amount must be a positive integer in currency subunits.',
+    );
+  }
+
   if (!idempotencyKey || idempotencyKey.length < 10) {
     throw new Error('Valid Razorpay refund idempotency key is required');
   }
@@ -30,7 +36,7 @@ export const createRazorpayRefund = async ({
   const payload = {
     amount,
     speed,
-    receipt,
+    ...(receipt ? { receipt } : {}),
     notes,
   };
 
