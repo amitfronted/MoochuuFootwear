@@ -528,8 +528,15 @@ const processRefundEvent = async (event, payload) => {
   if (event === 'refund.created') {
     /**
      * --------------------------------------------------------
-     * If we have a local ledger entry, update that entry.
+     * Update local Refund ledger.
      * --------------------------------------------------------
+     *
+     * refund.created means Razorpay accepted the refund.
+     * It does NOT necessarily mean the refund is processed.
+     *
+     * IMPORTANT:
+     * Webhooks can arrive out of order.
+     * Therefore, NEVER downgrade a PROCESSED refund.
      */
     if (localRefund) {
       const localAmountPaise = Math.round(Number(localRefund.amount) * 100);
@@ -542,9 +549,6 @@ const processRefundEvent = async (event, payload) => {
 
       localRefund.razorpayRefundId = refund.id;
 
-      /**
-       * Never downgrade a processed refund.
-       */
       if (localRefund.status !== 'PROCESSED') {
         localRefund.status = 'PENDING';
       }
@@ -552,6 +556,52 @@ const processRefundEvent = async (event, payload) => {
       localRefund.failureReason = '';
 
       await localRefund.save();
+    }
+
+    /**
+     * --------------------------------------------------------
+     * Recalculate order refund summary.
+     * --------------------------------------------------------
+     *
+     * Do NOT trust the current order.refundStatus here because
+     * refund.created and refund.processed can arrive in either
+     * order.
+     */
+    const processedRefunds = await Refund.aggregate([
+      {
+        $match: {
+          orderId: order._id,
+          status: 'PROCESSED',
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalRefunded: {
+            $sum: '$amount',
+          },
+        },
+      },
+    ]);
+
+    const totalRefundedAmount =
+      Number(processedRefunds?.[0]?.totalRefunded) || 0;
+
+    const orderTotalAmount = Number(order.totalAmount) || 0;
+
+    const remainingRefundableAmount = Math.max(
+      orderTotalAmount - totalRefundedAmount,
+      0,
+    );
+
+    const isFullyRefunded = remainingRefundableAmount <= 0.01;
+
+    let nextRefundStatus = 'PENDING';
+
+    if (isFullyRefunded) {
+      nextRefundStatus = 'PROCESSED';
+    } else if (totalRefundedAmount > 0) {
+      nextRefundStatus = 'PARTIAL';
     }
 
     /**
@@ -566,9 +616,22 @@ const processRefundEvent = async (event, payload) => {
       {
         $set: {
           refundId: refund.id,
-          refundStatus:
-            order.refundStatus === 'PROCESSED' ? 'PROCESSED' : 'PENDING',
+
+          totalRefundedAmount,
+
+          remainingRefundableAmount,
+
+          refundStatus: nextRefundStatus,
+
           refundFailureReason: '',
+
+          ...(isFullyRefunded
+            ? {
+                paymentStatus: 'REFUNDED',
+              }
+            : {
+                paymentStatus: 'PAID',
+              }),
         },
       },
     );
