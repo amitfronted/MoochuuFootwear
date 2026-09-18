@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Order from '../models/order.model.js';
 import Refund from '../models/refund.model.js';
 import {
@@ -217,6 +218,205 @@ export const reconcileRefundController = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error?.message || 'Refund reconciliation failed.',
+    });
+  }
+};
+
+export const getRefundSummaryController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    /**
+     * ==========================================================
+     * 1. VALIDATE ORDER ID
+     * ==========================================================
+     */
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 2. FIND ORDER
+     * ==========================================================
+     */
+    const order = await Order.findById(orderId).select(
+      [
+        '_id',
+        'orderNumber',
+        'totalAmount',
+        'paymentMethod',
+        'paymentProvider',
+        'paymentStatus',
+        'razorpayPaymentId',
+        'refundStatus',
+        'totalRefundedAmount',
+        'remainingRefundableAmount',
+        'refundAmount',
+        'refundFailureReason',
+        'refundedAt',
+        'createdAt',
+      ].join(' '),
+    );
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 3. VERIFY PAYMENT TYPE
+     * ==========================================================
+     */
+    if (
+      order.paymentMethod !== 'ONLINE' ||
+      order.paymentProvider !== 'RAZORPAY'
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Refund summary is available only for Razorpay orders.',
+      });
+    }
+
+    /**
+     * ==========================================================
+     * 4. READ REFUND LEDGER
+     * ==========================================================
+     */
+    const refunds = await Refund.find({
+      orderId: order._id,
+    })
+      .sort({ createdAt: -1 })
+      .select(
+        [
+          '_id',
+          'paymentId',
+          'razorpayRefundId',
+          'amount',
+          'currency',
+          'status',
+          'source',
+          'reason',
+          'failureReason',
+          'idempotencyKey',
+          'razorpayReceipt',
+          'requestedAt',
+          'processedAt',
+          'failedAt',
+          'createdAt',
+          'updatedAt',
+        ].join(' '),
+      )
+      .lean();
+
+    /**
+     * ==========================================================
+     * 5. CALCULATE REFUND TOTALS
+     * ==========================================================
+     *
+     * PROCESSED:
+     * Actual completed refunds.
+     *
+     * PENDING:
+     * Amount currently reserved by refund requests.
+     *
+     * FAILED:
+     * Does not consume refundable capacity.
+     */
+    let totalRefundedAmount = 0;
+    let pendingRefundAmount = 0;
+
+    for (const refund of refunds) {
+      const refundAmount = Number(refund.amount) || 0;
+
+      if (refund.status === 'PROCESSED') {
+        totalRefundedAmount += refundAmount;
+      }
+
+      if (refund.status === 'PENDING') {
+        pendingRefundAmount += refundAmount;
+      }
+    }
+
+    /**
+     * ==========================================================
+     * 6. CALCULATE REMAINING REFUNDABLE AMOUNT
+     * ==========================================================
+     *
+     * Pending refunds are reserved and therefore cannot be
+     * refunded again.
+     */
+    const totalAmount = Number(order.totalAmount) || 0;
+
+    const remainingRefundableAmount = Math.max(
+      totalAmount - totalRefundedAmount - pendingRefundAmount,
+      0,
+    );
+
+    /**
+     * ==========================================================
+     * 7. DETERMINE CURRENT REFUND STATUS
+     * ==========================================================
+     */
+    let refundStatus = 'NONE';
+
+    if (totalRefundedAmount >= totalAmount && totalAmount > 0) {
+      refundStatus = 'PROCESSED';
+    } else if (totalRefundedAmount > 0) {
+      refundStatus = 'PARTIAL';
+    } else if (pendingRefundAmount > 0) {
+      refundStatus = 'PENDING';
+    } else if (refunds.some((refund) => refund.status === 'FAILED')) {
+      refundStatus = 'FAILED';
+    }
+
+    /**
+     * ==========================================================
+     * 8. SUCCESS
+     * ==========================================================
+     */
+    return res.status(200).json({
+      success: true,
+
+      message: 'Refund summary fetched successfully.',
+
+      data: {
+        orderId: order._id,
+        orderNumber: order.orderNumber || null,
+
+        paymentId: order.razorpayPaymentId,
+
+        totalAmount: Number(totalAmount.toFixed(2)),
+
+        totalRefundedAmount: Number(totalRefundedAmount.toFixed(2)),
+
+        pendingRefundAmount: Number(pendingRefundAmount.toFixed(2)),
+
+        remainingRefundableAmount: Number(remainingRefundableAmount.toFixed(2)),
+
+        refundStatus,
+
+        paymentStatus: order.paymentStatus,
+
+        refundFailureReason: order.refundFailureReason || '',
+
+        refundedAt: order.refundedAt || null,
+
+        refunds,
+      },
+    });
+  } catch (error) {
+    console.error('GET REFUND SUMMARY ERROR:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to fetch refund summary.',
     });
   }
 };

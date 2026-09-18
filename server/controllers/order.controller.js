@@ -4937,10 +4937,12 @@ export const refundRazorpayOrderController = async (req, res) => {
      * Reusing the same key returns the same local refund record
      * instead of creating another refund.
      */
-    const idempotencyKey =
+    const rawIdempotencyKey =
       req.get('Idempotency-Key') || req.get('X-Idempotency-Key');
 
-    if (!idempotencyKey || idempotencyKey.trim().length < 10) {
+    const idempotencyKey = rawIdempotencyKey?.trim();
+
+    if (!idempotencyKey || idempotencyKey.length < 10) {
       return res.status(400).json({
         success: false,
         message: 'Valid Idempotency-Key header is required.',
@@ -4953,7 +4955,7 @@ export const refundRazorpayOrderController = async (req, res) => {
      * ==========================================================
      */
     const existingRefund = await Refund.findOne({
-      idempotencyKey: idempotencyKey.trim(),
+      idempotencyKey,
     });
 
     if (existingRefund) {
@@ -5074,7 +5076,31 @@ export const refundRazorpayOrderController = async (req, res) => {
     let requestedAmountPaise = null;
 
     if (amount !== undefined && amount !== null && amount !== '') {
-      const requestedAmount = Number(amount);
+      const amountString = String(amount).trim();
+
+      /**
+       * INR supports 2 decimal places.
+       *
+       * Valid:
+       * 100
+       * 100.5
+       * 100.50
+       *
+       * Invalid:
+       * 100.001
+       * 1e3
+       * abc
+       * -100
+       */
+      if (!/^\d+(\.\d{1,2})?$/.test(amountString)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Refund amount must be a valid INR amount with up to 2 decimal places.',
+        });
+      }
+
+      const requestedAmount = Number(amountString);
 
       if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
         return res.status(400).json({
@@ -5408,6 +5434,58 @@ export const refundRazorpayOrderController = async (req, res) => {
 
     /**
      * ==========================================================
+     * HANDLE IDEMPOTENCY RACE
+     * ==========================================================
+     *
+     * Two requests with the same Idempotency-Key can pass the
+     * initial findOne() before either request creates the Refund.
+     *
+     * MongoDB's unique index is the final protection.
+     * If it rejects the second insert, return the existing
+     * refund record instead of returning a generic 500.
+     */
+    if (error?.code === 11000) {
+      const duplicateRefund = await Refund.findOne({
+        idempotencyKey,
+      });
+
+      if (duplicateRefund) {
+        if (duplicateRefund.status === 'PROCESSED') {
+          return res.status(200).json({
+            success: true,
+            message: 'Refund already processed for this idempotency key.',
+            data: {
+              refund: duplicateRefund,
+            },
+          });
+        }
+
+        if (duplicateRefund.status === 'PENDING') {
+          return res.status(409).json({
+            success: false,
+            message:
+              'A refund request with this idempotency key is already pending.',
+            data: {
+              refund: duplicateRefund,
+            },
+          });
+        }
+
+        if (duplicateRefund.status === 'FAILED') {
+          return res.status(409).json({
+            success: false,
+            message:
+              'This refund request has already failed. Use a new Idempotency-Key to retry.',
+            data: {
+              refund: duplicateRefund,
+            },
+          });
+        }
+      }
+    }
+
+    /**
+     * ==========================================================
      * Handle known validation errors
      * ==========================================================
      */
@@ -5484,15 +5562,105 @@ export const refundRazorpayOrderController = async (req, res) => {
 
         await existingPendingRefund.save();
 
-        await Order.updateOne(
-          { _id: existingPendingRefund.orderId },
-          {
-            $set: {
-              refundStatus: 'FAILED',
-              refundFailureReason: existingPendingRefund.failureReason,
-            },
-          },
+        /**
+         * ----------------------------------------------------------
+         * Recalculate refund totals.
+         *
+         * FAILED refunds do not consume refundable capacity.
+         * ----------------------------------------------------------
+         */
+        const orderForRecalculation = await Order.findById(
+          existingPendingRefund.orderId,
         );
+
+        if (orderForRecalculation) {
+          const refundTotals = await Refund.aggregate([
+            {
+              $match: {
+                orderId: orderForRecalculation._id,
+                status: {
+                  $in: ['PENDING', 'PROCESSED'],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: null,
+
+                reservedPaise: {
+                  $sum: {
+                    $round: [
+                      {
+                        $multiply: ['$amount', 100],
+                      },
+                      0,
+                    ],
+                  },
+                },
+
+                processedPaise: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $eq: ['$status', 'PROCESSED'],
+                      },
+                      {
+                        $round: [
+                          {
+                            $multiply: ['$amount', 100],
+                          },
+                          0,
+                        ],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+          ]);
+
+          const reservedPaise = Number(refundTotals?.[0]?.reservedPaise) || 0;
+
+          const processedPaise = Number(refundTotals?.[0]?.processedPaise) || 0;
+
+          const totalAmountPaise = Math.round(
+            Number(orderForRecalculation.totalAmount) * 100,
+          );
+
+          const remainingPaise = Math.max(totalAmountPaise - reservedPaise, 0);
+
+          let refundStatus = 'NONE';
+
+          if (processedPaise >= totalAmountPaise && totalAmountPaise > 0) {
+            refundStatus = 'PROCESSED';
+          } else if (processedPaise > 0) {
+            refundStatus = 'PARTIAL';
+          } else if (reservedPaise > 0) {
+            refundStatus = 'PENDING';
+          } else {
+            refundStatus = 'FAILED';
+          }
+
+          await Order.updateOne(
+            {
+              _id: orderForRecalculation._id,
+            },
+            {
+              $set: {
+                totalRefundedAmount: processedPaise / 100,
+
+                remainingRefundableAmount: remainingPaise / 100,
+
+                refundStatus,
+
+                refundFailureReason: existingPendingRefund.failureReason,
+
+                refundAmount: existingPendingRefund.amount,
+              },
+            },
+          );
+        }
       }
     }
 

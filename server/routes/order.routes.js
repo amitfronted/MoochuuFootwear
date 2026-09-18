@@ -21,7 +21,10 @@ import {
   updateOrderShippingController,
 } from '../controllers/order.controller.js';
 
-import { reconcileRefundController } from '../controllers/refundReconciliation.controller.js';
+import {
+  getRefundSummaryController,
+  reconcileRefundController,
+} from '../controllers/refundReconciliation.controller.js';
 
 const orderRouter = express.Router();
 
@@ -107,6 +110,13 @@ orderRouter.post(
   auth,
   authorizeRoles('SUPER_ADMIN'),
   reconcileRefundController,
+);
+
+orderRouter.get(
+  '/admin/:orderId/refund/summary',
+  auth,
+  authorizeRoles('SUPER_ADMIN'),
+  getRefundSummaryController,
 );
 
 export default orderRouter;
