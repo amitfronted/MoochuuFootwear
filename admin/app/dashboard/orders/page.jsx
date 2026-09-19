@@ -166,22 +166,25 @@ const OrdersPage = () => {
   const handleCreateRefund = async (orderId, { amount, reason = '' }) => {
     if (!orderId) return;
 
+    setRefundSubmitting(true);
+
+    let idempotencyKey = refundIdempotencyKeys.current[orderId];
+
+    if (!idempotencyKey) {
+      const randomPart =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      idempotencyKey = `refund-${orderId}-${randomPart}`;
+
+      refundIdempotencyKeys.current[orderId] = idempotencyKey;
+    }
+
+    // --------------------------------------------------
+    // 1. CREATE REFUND
+    // --------------------------------------------------
     try {
-      setRefundSubmitting(true);
-
-      let idempotencyKey = refundIdempotencyKeys.current[orderId];
-
-      if (!idempotencyKey) {
-        const randomPart =
-          typeof crypto !== 'undefined' && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-        idempotencyKey = `refund-${orderId}-${randomPart}`;
-
-        refundIdempotencyKeys.current[orderId] = idempotencyKey;
-      }
-
       const response = await createOrderRefund(
         orderId,
         {
@@ -191,44 +194,93 @@ const OrdersPage = () => {
         idempotencyKey,
       );
 
-      if (response.success) {
-        toast.success(
-          response.message || 'Refund request submitted successfully',
-        );
+      if (!response?.success) {
+        toast.error(response?.message || 'Failed to create refund');
 
-        // The refund attempt is complete from the admin UI perspective.
-        // A future refund should receive a new idempotency key.
-        delete refundIdempotencyKeys.current[orderId];
-
-        await loadOrders();
-
-        // Refresh authoritative refund summary.
-        const summaryResponse = await fetchRefundSummary(orderId);
-
-        if (summaryResponse.success) {
-          setRefundSummary(summaryResponse.data);
-        } else {
-          setRefundSummary(null);
-        }
-      } else {
-        toast.error(response.message || 'Failed to create refund');
+        return;
       }
+
+      // -----------------------------------------------
+      // Refund request succeeded.
+      // This idempotency key must NEVER be reused
+      // for a future refund.
+      // -----------------------------------------------
+      delete refundIdempotencyKeys.current[orderId];
+
+      toast.success(
+        response.message || 'Refund request submitted successfully',
+      );
     } catch (error) {
       console.error('CREATE REFUND ERROR:', error.response?.data || error);
 
       const status = error.response?.status;
+
       const message =
         error.response?.data?.message ||
         error.message ||
         'Failed to create refund';
 
-      if (status === 409) {
-        toast.error(message);
-      } else {
-        toast.error(message);
+      toast.error(message);
+
+      /*
+       * Network/unknown errors:
+       * keep the same idempotency key so the user can retry
+       * without accidentally creating another refund.
+       *
+       * Definite server-side failure:
+       * the backend may have created a FAILED refund record.
+       * A new attempt needs a new idempotency key.
+       */
+      if (status && status !== 409) {
+        delete refundIdempotencyKeys.current[orderId];
       }
+
+      /*
+       * 409 is intentionally kept for now.
+       *
+       * Your backend uses 409 for an existing PENDING/FAILED
+       * idempotency record. We should inspect the exact response
+       * body before deciding whether a 409 means "reuse key"
+       * or "generate a new key".
+       */
+
+      throw error;
     } finally {
       setRefundSubmitting(false);
+    }
+
+    // --------------------------------------------------
+    // 2. REFRESH ADMIN UI
+    // --------------------------------------------------
+    //
+    // IMPORTANT:
+    // If this fails, the refund itself has already succeeded.
+    // Therefore DO NOT throw this error back to the modal.
+    //
+    try {
+      await loadOrders();
+
+      const summaryResponse = await fetchRefundSummary(orderId);
+
+      if (summaryResponse?.success) {
+        setRefundSummary(summaryResponse.data);
+      } else {
+        setRefundSummary(null);
+
+        toast.error(
+          summaryResponse?.message ||
+            'Refund created, but refund summary could not be refreshed.',
+        );
+      }
+    } catch (refreshError) {
+      console.error(
+        'REFUND UI REFRESH ERROR:',
+        refreshError.response?.data || refreshError,
+      );
+
+      toast.error(
+        'Refund was created, but the order information could not be refreshed. Please reopen the order.',
+      );
     }
   };
 

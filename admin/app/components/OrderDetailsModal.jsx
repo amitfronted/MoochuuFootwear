@@ -103,15 +103,19 @@ const OrderDetailsModal = ({
       return;
     }
 
-    await onCreateRefund?.(order._id, {
-      amount,
-      reason: refundReason.trim(),
-    });
+    try {
+      await onCreateRefund?.(order._id, {
+        amount,
+        reason: refundReason.trim(),
+      });
 
-    // Clear the form after a successful parent action.
-    // The parent refreshes the authoritative refund summary.
-    setRefundAmount('');
-    setRefundReason('');
+      // Clear only after the parent handler completes successfully.
+      setRefundAmount('');
+      setRefundReason('');
+    } catch (error) {
+      // Keep the form/idempotency attempt intact so the user can retry.
+      console.error('REFUND SUBMIT ERROR:', error);
+    }
   };
 
   return (
