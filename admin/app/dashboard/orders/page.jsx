@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import OrderDetailsModal from '@/app/components/OrderDetailsModal';
 
@@ -9,6 +9,9 @@ import {
   updateOrderStatus,
   updateOrderShipping,
   markCodPaymentAsPaid,
+  fetchRefundSummary,
+  createOrderRefund,
+  reconcileOrderRefund,
 } from '../../lib/api';
 
 const STATUS_OPTIONS = [
@@ -60,6 +63,23 @@ const OrdersPage = () => {
   const [updatingOrderId, setUpdatingOrderId] = useState(null);
 
   // -----------------------------------------
+  // REFUND STATE
+  // -----------------------------------------
+
+  const [refundSummary, setRefundSummary] = useState(null);
+
+  const [refundLoading, setRefundLoading] = useState(false);
+
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+
+  const [refundReconciling, setRefundReconciling] = useState(false);
+
+  // Keep the same idempotency key for a refund attempt.
+  // This prevents generating a new refund request key if the
+  // request needs to be retried after a timeout/network issue.
+  const refundIdempotencyKeys = useRef({});
+
+  // -----------------------------------------
   // LOAD ORDERS
   // -----------------------------------------
 
@@ -96,6 +116,159 @@ const OrdersPage = () => {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  // -----------------------------------------
+  // SELECT ORDER / LOAD REFUND SUMMARY
+  // -----------------------------------------
+
+  const handleOrderSelect = async (order) => {
+    if (!order) return;
+
+    setSelectedOrder(order);
+    setRefundSummary(null);
+
+    const isRazorpayOrder =
+      order.paymentMethod === 'ONLINE' && order.paymentProvider === 'RAZORPAY';
+
+    if (!isRazorpayOrder) {
+      return;
+    }
+
+    try {
+      setRefundLoading(true);
+
+      const response = await fetchRefundSummary(order._id);
+
+      if (response.success) {
+        setRefundSummary(response.data);
+      } else {
+        toast.error(response.message || 'Failed to load refund summary');
+      }
+    } catch (error) {
+      console.error('REFUND SUMMARY ERROR:', error.response?.data || error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          'Failed to load refund summary',
+      );
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
+  // -----------------------------------------
+  // CREATE REFUND
+  // -----------------------------------------
+
+  const handleCreateRefund = async (orderId, { amount, reason = '' }) => {
+    if (!orderId) return;
+
+    try {
+      setRefundSubmitting(true);
+
+      let idempotencyKey = refundIdempotencyKeys.current[orderId];
+
+      if (!idempotencyKey) {
+        const randomPart =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        idempotencyKey = `refund-${orderId}-${randomPart}`;
+
+        refundIdempotencyKeys.current[orderId] = idempotencyKey;
+      }
+
+      const response = await createOrderRefund(
+        orderId,
+        {
+          amount,
+          reason,
+        },
+        idempotencyKey,
+      );
+
+      if (response.success) {
+        toast.success(
+          response.message || 'Refund request submitted successfully',
+        );
+
+        // The refund attempt is complete from the admin UI perspective.
+        // A future refund should receive a new idempotency key.
+        delete refundIdempotencyKeys.current[orderId];
+
+        await loadOrders();
+
+        // Refresh authoritative refund summary.
+        const summaryResponse = await fetchRefundSummary(orderId);
+
+        if (summaryResponse.success) {
+          setRefundSummary(summaryResponse.data);
+        } else {
+          setRefundSummary(null);
+        }
+      } else {
+        toast.error(response.message || 'Failed to create refund');
+      }
+    } catch (error) {
+      console.error('CREATE REFUND ERROR:', error.response?.data || error);
+
+      const status = error.response?.status;
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        'Failed to create refund';
+
+      if (status === 409) {
+        toast.error(message);
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setRefundSubmitting(false);
+    }
+  };
+
+  // -----------------------------------------
+  // RECONCILE REFUND
+  // -----------------------------------------
+
+  const handleReconcileRefund = async (orderId) => {
+    if (!orderId) return;
+
+    try {
+      setRefundReconciling(true);
+
+      const response = await reconcileOrderRefund(orderId);
+
+      if (response.success) {
+        toast.success(response.message || 'Refund reconciliation completed');
+
+        await loadOrders();
+
+        const summaryResponse = await fetchRefundSummary(orderId);
+
+        if (summaryResponse.success) {
+          setRefundSummary(summaryResponse.data);
+        } else {
+          setRefundSummary(null);
+        }
+      } else {
+        toast.error(response.message || 'Refund reconciliation failed');
+      }
+    } catch (error) {
+      console.error('REFUND RECONCILE ERROR:', error.response?.data || error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          'Refund reconciliation failed',
+      );
+    } finally {
+      setRefundReconciling(false);
     }
   };
 
@@ -521,7 +694,7 @@ const OrdersPage = () => {
                       <td className="px-4 py-4">
                         <button
                           type="button"
-                          onClick={() => setSelectedOrder(order)}
+                          onClick={() => handleOrderSelect(order)}
                           className="
                             font-semibold
                             text-blue-600
@@ -639,7 +812,7 @@ const OrdersPage = () => {
                       <td className="px-4 py-4">
                         <button
                           type="button"
-                          onClick={() => setSelectedOrder(order)}
+                          onClick={() => handleOrderSelect(order)}
                           className="
                             border
                             px-3
@@ -661,12 +834,21 @@ const OrdersPage = () => {
       </div>
       <OrderDetailsModal
         order={selectedOrder}
-        onClose={() => setSelectedOrder(null)}
+        onClose={() => {
+          setSelectedOrder(null);
+          setRefundSummary(null);
+        }}
         onStatusChange={handleStatusChange}
         onMarkCodPaid={handleMarkCodPaid}
         onShippingUpdate={handleShippingUpdate}
         updatingOrderId={updatingOrderId}
         onPrintInvoice={printInvoice}
+        refundSummary={refundSummary}
+        refundLoading={refundLoading}
+        refundSubmitting={refundSubmitting}
+        refundReconciling={refundReconciling}
+        onCreateRefund={handleCreateRefund}
+        onReconcileRefund={handleReconcileRefund}
       />
     </>
   );

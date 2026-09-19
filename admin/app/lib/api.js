@@ -188,6 +188,47 @@ export const markCodPaymentAsPaid = async (orderId) => {
   return response.data;
 };
 
+// =====================================================
+// REFUND API
+// =====================================================
+
+export const fetchRefundSummary = async (orderId) => {
+  const res = await api.get(`/orders/admin/${orderId}/refund/summary`);
+
+  return res.data;
+};
+
+export const createOrderRefund = async (
+  orderId,
+  { amount, reason = '' },
+  idempotencyKey,
+) => {
+  if (!idempotencyKey) {
+    throw new Error('Refund idempotency key is required.');
+  }
+
+  const res = await api.post(
+    `/orders/admin/${orderId}/refund`,
+    {
+      amount,
+      reason,
+    },
+    {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+      },
+    },
+  );
+
+  return res.data;
+};
+
+export const reconcileOrderRefund = async (orderId) => {
+  const res = await api.post(`/orders/admin/${orderId}/refund/reconcile`);
+
+  return res.data;
+};
+
 // *--- RETURN MANAGEMENT API ---*
 
 export const fetchReturnRequests = async () => {
