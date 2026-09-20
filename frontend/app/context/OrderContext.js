@@ -195,38 +195,42 @@ export const OrderProvider = ({ children }) => {
     }
   }, []);
 
-  const requestReturn = useCallback(async (orderId, { reason, comment }) => {
-    try {
-      setLoading(true);
+  const requestReturn = useCallback(
+    async (orderId, { reason, comment, items }) => {
+      try {
+        setLoading(true);
 
-      const response = await api.post(`/orders/${orderId}/return`, {
-        reason,
-        comment,
-      });
+        const response = await api.post(`/orders/${orderId}/return`, {
+          reason,
+          comment,
+          items,
+        });
 
-      if (response.data?.success && response.data?.data?.order) {
-        const returnedOrder = response.data.data.order;
+        if (response.data?.success && response.data?.data?.order) {
+          const returnedOrder = response.data.data.order;
 
-        setOrders((prev) =>
-          prev.map((order) =>
-            order._id === returnedOrder._id ? returnedOrder : order,
-          ),
-        );
+          setOrders((prev) =>
+            prev.map((order) =>
+              order._id === returnedOrder._id ? returnedOrder : order,
+            ),
+          );
+        }
+
+        return response.data;
+      } catch (error) {
+        return {
+          success: false,
+          message:
+            error.response?.data?.message ||
+            error.message ||
+            'Unable to submit return request.',
+        };
+      } finally {
+        setLoading(false);
       }
-
-      return response.data;
-    } catch (error) {
-      return {
-        success: false,
-        message:
-          error.response?.data?.message ||
-          error.message ||
-          'Unable to submit return request.',
-      };
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
   return (
     <OrderContext.Provider

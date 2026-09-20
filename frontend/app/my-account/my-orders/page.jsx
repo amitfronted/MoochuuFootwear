@@ -811,6 +811,10 @@ const MyOrdersPage = () => {
     getMyOrders();
   }, [getMyOrders]);
 
+  useEffect(() => {
+    console.log('RETURN ITEMS STATE:', returnItems);
+  }, [returnItems]);
+
   const orderList = Array.isArray(orders) ? orders : [];
 
   return (
