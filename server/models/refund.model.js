@@ -9,6 +9,12 @@ const refundSchema = new mongoose.Schema(
       index: true,
     },
 
+    returnRequestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

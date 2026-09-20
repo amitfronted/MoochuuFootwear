@@ -108,8 +108,23 @@ const shippingAddressSchema = new mongoose.Schema(
   { _id: false },
 );
 
-const returnRequestSchema = new mongoose.Schema(
+const returnRequestItemSchema = new mongoose.Schema(
   {
+    orderItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+    },
+
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1,
+      validate: {
+        validator: Number.isInteger,
+        message: 'Return quantity must be an integer.',
+      },
+    },
+
     reason: {
       type: String,
       enum: [
@@ -120,7 +135,7 @@ const returnRequestSchema = new mongoose.Schema(
         'QUALITY_ISSUE',
         'OTHER',
       ],
-      default: '',
+      default: null,
     },
 
     comment: {
@@ -129,48 +144,88 @@ const returnRequestSchema = new mongoose.Schema(
       trim: true,
       maxlength: 500,
     },
-
-    requestedAt: {
-      type: Date,
-      default: null,
-    },
-
-    approvedAt: {
-      type: Date,
-      default: null,
-    },
-
-    rejectedAt: {
-      type: Date,
-      default: null,
-    },
-
-    receivedAt: {
-      type: Date,
-      default: null,
-    },
-
-    conditionComment: {
-      type: String,
-      default: '',
-      trim: true,
-      maxlength: 500,
-    },
-
-    completedAt: {
-      type: Date,
-      default: null,
-    },
-
-    rejectionReason: {
-      type: String,
-      default: '',
-      trim: true,
-      maxlength: 500,
-    },
   },
   { _id: false },
 );
+
+const returnRequestSchema = new mongoose.Schema({
+  returnType: {
+    type: String,
+    enum: ['FULL', 'PARTIAL'],
+    default: 'FULL',
+    index: true,
+  },
+
+  items: {
+    type: [returnRequestItemSchema],
+    default: [],
+  },
+
+  reason: {
+    type: String,
+    enum: [
+      'WRONG_PRODUCT',
+      'DAMAGED_PRODUCT',
+      'DEFECTIVE_PRODUCT',
+      'SIZE_ISSUE',
+      'QUALITY_ISSUE',
+      'OTHER',
+    ],
+    default: '',
+  },
+
+  comment: {
+    type: String,
+    default: '',
+    trim: true,
+    maxlength: 500,
+  },
+
+  requestedAt: {
+    type: Date,
+    default: null,
+  },
+
+  approvedAt: {
+    type: Date,
+    default: null,
+  },
+
+  rejectedAt: {
+    type: Date,
+    default: null,
+  },
+
+  receivedAt: {
+    type: Date,
+    default: null,
+  },
+
+  condition: {
+    type: String,
+    enum: ['RESELLABLE', 'DAMAGED'],
+    default: null,
+  },
+
+  conditionComment: {
+    type: String,
+    default: '',
+    trim: true,
+    maxlength: 500,
+  },
+
+  completedAt: {
+    type: Date,
+    default: null,
+  },
+
+  rejectionReason: {
+    type: String,
+    default: '',
+    trim: true,
+    maxlength: 500,
+  },
+});
 
 const shippingDetailsSchema = new mongoose.Schema(
   {

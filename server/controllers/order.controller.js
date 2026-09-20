@@ -5695,12 +5695,11 @@ export const refundRazorpayOrderController = async (req, res) => {
 export const requestOrderReturnController = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { reason, comment = '' } = req.body;
+    const { items, reason, comment = '' } = req.body;
 
-    // --------------------------------------------------------
-    // 1. Validate order ID
-    // --------------------------------------------------------
-
+    // --------------------------------------------------
+    // 1. Validate Order ID
+    // --------------------------------------------------
     if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({
         success: false,
@@ -5708,10 +5707,9 @@ export const requestOrderReturnController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // 2. Validate reason
-    // --------------------------------------------------------
-
+    // --------------------------------------------------
+    // 2. Allowed Return Reasons
+    // --------------------------------------------------
     const allowedReasons = [
       'WRONG_PRODUCT',
       'DAMAGED_PRODUCT',
@@ -5721,6 +5719,9 @@ export const requestOrderReturnController = async (req, res) => {
       'OTHER',
     ];
 
+    // --------------------------------------------------
+    // 3. Validate Top-Level Reason
+    // --------------------------------------------------
     if (!reason || !allowedReasons.includes(reason)) {
       return res.status(400).json({
         success: false,
@@ -5728,21 +5729,36 @@ export const requestOrderReturnController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // 3. Validate comment length
-    // --------------------------------------------------------
+    // --------------------------------------------------
+    // 4. Validate Comment
+    // --------------------------------------------------
+    if (typeof comment !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'Return comment must be a string.',
+      });
+    }
 
-    if (comment && comment.length > 500) {
+    if (comment.length > 500) {
       return res.status(400).json({
         success: false,
         message: 'Return comment cannot exceed 500 characters.',
       });
     }
 
-    // --------------------------------------------------------
-    // 4. Find customer's order
-    // --------------------------------------------------------
+    // --------------------------------------------------
+    // 5. Validate Return Items
+    // --------------------------------------------------
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select at least one item for return.',
+      });
+    }
 
+    // --------------------------------------------------
+    // 6. Find Order Owned By Logged-In User
+    // --------------------------------------------------
     const order = await Order.findOne({
       _id: orderId,
       userId: req.user._id,
@@ -5755,10 +5771,9 @@ export const requestOrderReturnController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // 5. Order must be delivered
-    // --------------------------------------------------------
-
+    // --------------------------------------------------
+    // 7. Only Delivered Orders Can Be Returned
+    // --------------------------------------------------
     if (order.orderStatus !== 'DELIVERED') {
       return res.status(400).json({
         success: false,
@@ -5766,10 +5781,9 @@ export const requestOrderReturnController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // 6. Validate delivery date
-    // --------------------------------------------------------
-
+    // --------------------------------------------------
+    // 8. Delivery Date Required
+    // --------------------------------------------------
     if (!order.deliveredAt) {
       return res.status(400).json({
         success: false,
@@ -5778,17 +5792,9 @@ export const requestOrderReturnController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // 7. Return window
-    // --------------------------------------------------------
-    // Customer can request a return within 7 days
-    // from the delivery date.
-    //
-    // Example:
-    // deliveredAt = September 10
-    // return allowed through September 17
-    // --------------------------------------------------------
-
+    // --------------------------------------------------
+    // 9. Seven-Day Return Window
+    // --------------------------------------------------
     const RETURN_WINDOW_DAYS = 7;
 
     const deliveredAt = new Date(order.deliveredAt);
@@ -5809,10 +5815,9 @@ export const requestOrderReturnController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // 8. Prevent duplicate return request
-    // --------------------------------------------------------
-
+    // --------------------------------------------------
+    // 10. Prevent Duplicate Return Request
+    // --------------------------------------------------
     if (order.returnStatus !== 'NONE') {
       return res.status(400).json({
         success: false,
@@ -5820,37 +5825,203 @@ export const requestOrderReturnController = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // 7. Create return request
-    // --------------------------------------------------------
+    // --------------------------------------------------
+    // 11. Validate Return Items
+    // --------------------------------------------------
+    const returnItems = [];
+    const selectedOrderItemIds = new Set();
 
+    for (const item of items) {
+      if (!item || typeof item !== 'object') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid return item.',
+        });
+      }
+
+      const {
+        orderItemId,
+        quantity,
+        reason: itemReason,
+        comment: itemComment = '',
+      } = item;
+
+      // ----------------------------------------------
+      // Validate orderItemId
+      // ----------------------------------------------
+      if (!orderItemId || !mongoose.Types.ObjectId.isValid(orderItemId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid order item ID.',
+        });
+      }
+
+      // ----------------------------------------------
+      // Prevent Duplicate Item IDs
+      // ----------------------------------------------
+      const orderItemKey = String(orderItemId);
+
+      if (selectedOrderItemIds.has(orderItemKey)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Duplicate order item found in return request.',
+        });
+      }
+
+      selectedOrderItemIds.add(orderItemKey);
+
+      // ----------------------------------------------
+      // Validate Quantity
+      // ----------------------------------------------
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        return res.status(400).json({
+          success: false,
+          message: 'Return quantity must be a positive integer.',
+        });
+      }
+
+      // ----------------------------------------------
+      // Find Original Order Item
+      // ----------------------------------------------
+      const orderItem = order.items.find(
+        (orderItem) => String(orderItem._id) === orderItemKey,
+      );
+
+      if (!orderItem) {
+        return res.status(400).json({
+          success: false,
+          message: 'One or more selected order items were not found.',
+        });
+      }
+
+      // ----------------------------------------------
+      // Prevent Returning More Than Ordered
+      // ----------------------------------------------
+      if (quantity > orderItem.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `Return quantity cannot exceed ordered quantity for ${orderItem.name}.`,
+        });
+      }
+
+      // ----------------------------------------------
+      // Validate Item-Level Reason
+      // ----------------------------------------------
+      let normalizedItemReason = itemReason || reason;
+
+      if (!allowedReasons.includes(normalizedItemReason)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid return reason for ${orderItem.name}.`,
+        });
+      }
+
+      // ----------------------------------------------
+      // Validate Item-Level Comment
+      // ----------------------------------------------
+      if (typeof itemComment !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: `Return comment for ${orderItem.name} must be a string.`,
+        });
+      }
+
+      if (itemComment.length > 500) {
+        return res.status(400).json({
+          success: false,
+          message: `Return comment for ${orderItem.name} cannot exceed 500 characters.`,
+        });
+      }
+
+      // ----------------------------------------------
+      // Store Validated Return Item
+      // ----------------------------------------------
+      returnItems.push({
+        orderItemId: orderItem._id,
+        quantity,
+        reason: normalizedItemReason,
+        comment: itemComment.trim(),
+      });
+    }
+
+    // --------------------------------------------------
+    // 12. Calculate Return Type SERVER-SIDE
+    // --------------------------------------------------
+    //
+    // FULL:
+    // Every order item is selected AND the complete
+    // quantity of every item is being returned.
+    //
+    // PARTIAL:
+    // Anything less than the complete order.
+    // --------------------------------------------------
+
+    const isFullReturn =
+      returnItems.length === order.items.length &&
+      returnItems.every((returnItem) => {
+        const orderItem = order.items.find(
+          (item) => String(item._id) === String(returnItem.orderItemId),
+        );
+
+        return orderItem && returnItem.quantity === orderItem.quantity;
+      });
+
+    const returnType = isFullReturn ? 'FULL' : 'PARTIAL';
+
+    // --------------------------------------------------
+    // 13. Update Order Return State
+    // --------------------------------------------------
     order.returnStatus = 'REQUESTED';
 
     order.returnRequest = {
+      returnType,
+      items: returnItems,
+
       reason,
       comment: comment.trim(),
+
       requestedAt: new Date(),
+
       approvedAt: null,
       rejectedAt: null,
+      receivedAt: null,
+
+      condition: null,
+      conditionComment: '',
+
       completedAt: null,
       rejectionReason: '',
     };
 
+    // --------------------------------------------------
+    // 14. Save Order
+    // --------------------------------------------------
     await order.save();
 
-    // --------------------------------------------------------
-    // 8. Response
-    // --------------------------------------------------------
-
+    // --------------------------------------------------
+    // 15. Response
+    // --------------------------------------------------
     return res.status(201).json({
       success: true,
       message: 'Return request submitted successfully.',
       data: {
+        returnType,
+        returnStatus: order.returnStatus,
+        returnRequest: order.returnRequest,
         order,
       },
     });
   } catch (error) {
     console.error('REQUEST RETURN ERROR:', error);
+
+    // Mongoose validation errors should be treated as
+    // client-side validation errors.
+    if (error?.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
 
     return res.status(500).json({
       success: false,

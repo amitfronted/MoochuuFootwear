@@ -638,9 +638,10 @@ const MyOrdersPage = () => {
     useOrders();
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
   const [orderToCancel, setOrderToCancel] = useState(null);
+
   const [returningOrderId, setReturningOrderId] = useState(null);
   const [orderToReturn, setOrderToReturn] = useState(null);
-  const [returnReason, setReturnReason] = useState('');
+  const [returnItems, setReturnItems] = useState([]);
   const [returnComment, setReturnComment] = useState('');
 
   const handleCancelOrder = (order) => {
@@ -676,32 +677,124 @@ const MyOrdersPage = () => {
     if (!order?._id) return;
 
     setOrderToReturn(order);
-    setReturnReason('');
+    setReturnItems([]);
     setReturnComment('');
+  };
+
+  const handleToggleReturnItem = (item) => {
+    const itemId = String(item?._id || '');
+
+    if (!itemId) return;
+
+    setReturnItems((prev) => {
+      const exists = prev.some(
+        (selected) => String(selected.orderItemId) === itemId,
+      );
+
+      if (exists) {
+        return prev.filter(
+          (selected) => String(selected.orderItemId) !== itemId,
+        );
+      }
+
+      return [
+        ...prev,
+        {
+          orderItemId: itemId,
+          quantity: 1,
+          reason: '',
+          comment: '',
+        },
+      ];
+    });
+  };
+
+  const handleReturnItemQuantityChange = (orderItemId, quantity) => {
+    setReturnItems((prev) =>
+      prev.map((item) =>
+        String(item.orderItemId) === String(orderItemId)
+          ? {
+              ...item,
+              quantity,
+            }
+          : item,
+      ),
+    );
+  };
+
+  const handleReturnItemReasonChange = (orderItemId, reason) => {
+    setReturnItems((prev) =>
+      prev.map((item) =>
+        String(item.orderItemId) === String(orderItemId)
+          ? {
+              ...item,
+              reason,
+            }
+          : item,
+      ),
+    );
+  };
+
+  const handleReturnItemCommentChange = (orderItemId, comment) => {
+    setReturnItems((prev) =>
+      prev.map((item) =>
+        String(item.orderItemId) === String(orderItemId)
+          ? {
+              ...item,
+              comment,
+            }
+          : item,
+      ),
+    );
   };
 
   const submitReturnRequest = async () => {
     if (!orderToReturn?._id) return;
 
-    if (!returnReason) {
-      toast.error('Please select a return reason.');
+    if (!returnItems.length) {
+      toast.error('Please select at least one item to return.');
+      return;
+    }
+
+    const hasMissingReason = returnItems.some((item) => !item.reason);
+
+    if (hasMissingReason) {
+      toast.error('Please select a return reason for every selected item.');
       return;
     }
 
     try {
       setReturningOrderId(orderToReturn._id);
 
+      /*
+       * The backend still requires the legacy top-level
+       * `reason` field. Use the first selected item's reason
+       * for that compatibility field.
+       *
+       * The actual item-level reasons are sent inside `items`.
+       */
+      const firstReason = returnItems[0]?.reason || 'OTHER';
+
       const response = await requestReturn(orderToReturn._id, {
-        reason: returnReason,
+        reason: firstReason,
         comment: returnComment.trim(),
+
+        items: returnItems.map((item) => ({
+          orderItemId: item.orderItemId,
+          quantity: Number(item.quantity),
+          reason: item.reason,
+          comment: String(item.comment || '').trim(),
+        })),
       });
 
       if (response.success) {
         toast.success('Return request submitted successfully.');
 
         setOrderToReturn(null);
-        setReturnReason('');
+        setReturnItems([]);
         setReturnComment('');
+
+        await getMyOrders();
       } else {
         toast.error(response.message || 'Unable to submit return request.');
       }
@@ -826,11 +919,17 @@ const MyOrdersPage = () => {
         onClose={() => {
           if (!returningOrderId) {
             setOrderToReturn(null);
+            setReturnItems([]);
+            setReturnComment('');
           }
         }}
         onSubmit={submitReturnRequest}
-        reason={returnReason}
-        setReason={setReturnReason}
+        order={orderToReturn}
+        selectedItems={returnItems}
+        onToggleItem={handleToggleReturnItem}
+        onQuantityChange={handleReturnItemQuantityChange}
+        onReasonChange={handleReturnItemReasonChange}
+        onItemCommentChange={handleReturnItemCommentChange}
         comment={returnComment}
         setComment={setReturnComment}
         submitting={Boolean(returningOrderId)}
