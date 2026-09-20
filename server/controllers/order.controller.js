@@ -7207,6 +7207,54 @@ export const completeOrderReturnController = async (req, res) => {
           refundFailureReason: '',
         };
 
+        // --------------------------------------------------------
+        // Create Refund ledger record
+        // --------------------------------------------------------
+        // IMPORTANT:
+        // Razorpay refund has now been successfully created.
+        //
+        // Create our internal Refund ledger record so:
+        // - Refund History can display it
+        // - reconciliation can find it
+        // - webhook/reconciliation can later move it
+        //   from PENDING -> PROCESSED
+        // --------------------------------------------------------
+
+        const refundLedgerAmount =
+          Number(refund.amount || refundAmountPaise) / 100;
+
+        const existingRefund = await Refund.findOne({
+          razorpayRefundId: refund.id,
+        });
+
+        if (!existingRefund) {
+          await Refund.create({
+            orderId: order._id,
+            userId: order.userId,
+
+            razorpayPaymentId: order.razorpayPaymentId,
+            razorpayRefundId: refund.id,
+
+            amount: refundLedgerAmount,
+
+            currency: refund.currency || 'INR',
+
+            status: 'PENDING',
+
+            source: 'RETURN',
+
+            returnRequestId: order.returnRequest?._id || null,
+
+            reason: 'Customer return completed',
+
+            metadata: {
+              orderNumber: order.orderNumber,
+              condition,
+              returnType: order.returnRequest?.returnType || 'UNKNOWN',
+            },
+          });
+        }
+
         // ------------------------------------------------------
         // Do not overwrite a webhook that already moved the
         // refund to PROCESSED / paymentStatus REFUNDED.
