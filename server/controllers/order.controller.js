@@ -6085,13 +6085,48 @@ export const getAllReturnRequestsController = async (req, res) => {
 
           const totalRefundedAmount = Number(order.totalRefundedAmount || 0);
 
-          const remainingRefundableAmount = Math.max(
-            Number(
-              order.remainingRefundableAmount ??
-                orderTotal - totalRefundedAmount,
-            ) || 0,
+          const storedRemainingRefundable = Number(
+            order.remainingRefundableAmount,
+          );
+
+          const fallbackRemainingRefundable = Math.max(
+            orderTotal - totalRefundedAmount,
             0,
           );
+
+          /**
+           * --------------------------------------------------------
+           * Determine remaining refundable amount
+           * --------------------------------------------------------
+           *
+           * Some older orders may have:
+           *
+           *   remainingRefundableAmount = 0
+           *   totalRefundedAmount = 0
+           *
+           * even though no refund has actually consumed
+           * the refundable balance.
+           *
+           * In that case, treat the stored zero as
+           * uninitialized and calculate from the order total.
+           *
+           * Once a real refund reservation/refund exists,
+           * the stored remaining amount remains authoritative.
+           * --------------------------------------------------------
+           */
+          const hasActualRefundActivity =
+            totalRefundedAmount > 0 ||
+            order.refundStatus === 'PENDING' ||
+            order.refundStatus === 'PARTIAL' ||
+            order.refundStatus === 'PROCESSED';
+
+          const remainingRefundableAmount =
+            Number.isFinite(storedRemainingRefundable) &&
+            storedRemainingRefundable > 0
+              ? storedRemainingRefundable
+              : hasActualRefundActivity
+                ? Math.max(storedRemainingRefundable || 0, 0)
+                : fallbackRemainingRefundable;
 
           refundPreview = {
             orderTotal,
@@ -6950,15 +6985,40 @@ export const completeOrderReturnController = async (req, res) => {
             currentOrder.remainingRefundableAmount,
           );
 
-          const fallbackRemainingRefundable =
-            Number(currentOrder.totalAmount || 0) -
-            Number(currentOrder.totalRefundedAmount || 0);
+          const totalRefundedAmount = Number(
+            currentOrder.totalRefundedAmount || 0,
+          );
+
+          const fallbackRemainingRefundable = Math.max(
+            Number(currentOrder.totalAmount || 0) - totalRefundedAmount,
+            0,
+          );
+
+          /**
+           * --------------------------------------------------------
+           * Determine remaining refundable amount
+           * --------------------------------------------------------
+           *
+           * A zero remaining amount with zero actual refund activity
+           * can represent an uninitialized legacy order.
+           *
+           * Once refund activity has actually started, the stored
+           * remaining amount must be respected.
+           * --------------------------------------------------------
+           */
+          const hasActualRefundActivity =
+            totalRefundedAmount > 0 ||
+            currentOrder.refundStatus === 'PENDING' ||
+            currentOrder.refundStatus === 'PARTIAL' ||
+            currentOrder.refundStatus === 'PROCESSED';
 
           const remainingRefundableAmount =
             Number.isFinite(currentRemainingRefundable) &&
-            currentRemainingRefundable >= 0
+            currentRemainingRefundable > 0
               ? currentRemainingRefundable
-              : fallbackRemainingRefundable;
+              : hasActualRefundActivity
+                ? Math.max(currentRemainingRefundable || 0, 0)
+                : fallbackRemainingRefundable;
 
           if (
             !Number.isFinite(remainingRefundableAmount) ||
