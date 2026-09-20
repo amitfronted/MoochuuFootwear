@@ -6416,31 +6416,6 @@ export const rejectOrderReturnController = async (req, res) => {
   }
 };
 
-/**
- * ============================================================
- * CANCEL MY ORDER
- * ============================================================
- *
- * PATCH /api/orders/:orderId/cancel
- *
- * Rules:
- * - Customer can cancel only their own order
- * - Allowed: PLACED, CONFIRMED, PROCESSING
- * - SHIPPED / DELIVERED cannot be cancelled
- * - CANCELLED orders cannot be cancelled again
- * - COD cancellation restores inventory
- * - PAID ONLINE cancellation creates a Razorpay refund
- * - Online refund remains PENDING until Razorpay webhook
- *   confirms refund.processed
- *
- * Inventory:
- * - STANDARD → restore Product.standardStock
- * - CUSTOMIZABLE → restore Base + Strap + optional Thumb
- * - Every restoration creates InventoryTransaction type CANCEL
- *
- * ============================================================
- */
-
 export const completeOrderReturnController = async (req, res) => {
   const { orderId } = req.params;
   const { condition, conditionComment = '' } = req.body;
@@ -7045,7 +7020,14 @@ export const completeOrderReturnController = async (req, res) => {
 
           // Save the exact amount that will be requested
           // from Razorpay.
+          const reservedRemainingAmount = Math.max(
+            Number((remainingRefundableAmount - refundAmount).toFixed(2)),
+            0,
+          );
+
           currentOrder.refundAmount = refundAmount;
+
+          currentOrder.remainingRefundableAmount = reservedRemainingAmount;
 
           currentOrder.refundStatus = 'PENDING';
 
@@ -7109,7 +7091,7 @@ export const completeOrderReturnController = async (req, res) => {
 
       const remainingRefundableAmount =
         Number.isFinite(orderRemainingRefundable) &&
-        orderRemainingRefundable >= 0
+        orderRemainingRefundable > 0
           ? orderRemainingRefundable
           : fallbackRemainingRefundable;
 
