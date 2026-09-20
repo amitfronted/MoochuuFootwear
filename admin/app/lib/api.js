@@ -250,12 +250,17 @@ export const rejectOrderReturn = async (orderId, rejectionReason) => {
   return res.data;
 };
 
-export const completeOrderReturn = async (orderId) => {
-  const res = await api.patch(`/orders/admin/${orderId}/return/complete`);
+export const completeOrderReturn = async (
+  orderId,
+  { condition, conditionComment = '' },
+) => {
+  const res = await api.patch(`/orders/admin/${orderId}/return/complete`, {
+    condition,
+    conditionComment,
+  });
 
   return res.data;
 };
-
 // =====================================================
 // COUPON API
 // =====================================================

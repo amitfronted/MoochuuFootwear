@@ -49,6 +49,8 @@ export default function ReturnsPage() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [completeModal, setCompleteModal] = useState(false);
   const [completeReturnData, setCompleteReturnData] = useState(null);
+  const [inspectionCondition, setInspectionCondition] = useState('');
+  const [inspectionComment, setInspectionComment] = useState('');
 
   const loadReturns = async () => {
     try {
@@ -152,8 +154,10 @@ export default function ReturnsPage() {
     }
   };
 
-  const openCompleteModal = (returnRequest) => {
-    setCompleteReturnData(returnRequest);
+  const openCompleteModal = (returnData) => {
+    setCompleteReturnData(returnData);
+    setInspectionCondition('');
+    setInspectionComment('');
     setCompleteModal(true);
   };
 
@@ -162,25 +166,38 @@ export default function ReturnsPage() {
 
     setCompleteModal(false);
     setCompleteReturnData(null);
+    setInspectionCondition('');
+    setInspectionComment('');
   };
 
   const handleComplete = async () => {
     if (!completeReturnData?._id) return;
 
+    if (!inspectionCondition) {
+      toast.error('Please select the returned product condition.');
+      return;
+    }
+
+    if (inspectionCondition === 'DAMAGED' && !inspectionComment.trim()) {
+      toast.error('Please provide a comment for the damaged product.');
+      return;
+    }
+
     try {
       setProcessingId(completeReturnData._id);
 
-      const response = await completeOrderReturn(completeReturnData._id);
+      const response = await completeOrderReturn(completeReturnData._id, {
+        condition: inspectionCondition,
+        conditionComment: inspectionComment.trim(),
+      });
 
       if (!response?.success) {
-        toast.error(response?.message || 'Unable to complete return.');
-        return;
+        throw new Error(response?.message || 'Unable to complete return.');
       }
 
-      toast.success('Return completed successfully.');
+      toast.success(response.message || 'Return completed successfully.');
 
-      setCompleteModal(false);
-      setCompleteReturnData(null);
+      closeCompleteModal();
       setSelectedReturn(null);
 
       await loadReturns();
@@ -268,7 +285,11 @@ export default function ReturnsPage() {
                 </th>
 
                 <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Reason
+                  Return
+                </th>
+
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Refund
                 </th>
 
                 <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -289,7 +310,7 @@ export default function ReturnsPage() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-6 py-12 text-center text-sm text-gray-500"
                   >
                     Loading return requests...
@@ -298,7 +319,7 @@ export default function ReturnsPage() {
               ) : filteredReturns.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-6 py-12 text-center text-sm text-gray-500"
                   >
                     No return requests found.
@@ -326,13 +347,59 @@ export default function ReturnsPage() {
                         {item.userId?.email || '-'}
                       </div>
                     </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col items-center gap-1">
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                            item.returnRequest?.returnType === 'FULL'
+                              ? 'bg-purple-100 text-purple-700'
+                              : 'bg-orange-100 text-orange-700'
+                          }`}
+                        >
+                          {item.returnRequest?.returnType || '-'}
+                        </span>
+
+                        <span className="text-xs text-gray-500">
+                          {item.returnRequest?.items?.length || 0} item
+                          {item.returnRequest?.items?.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                    </td>
 
                     <td className="px-6 py-4">
-                      <span className="text-sm text-gray-700">
-                        {reasonLabels[item.returnRequest?.reason] ||
-                          item.returnRequest?.reason ||
-                          '-'}
-                      </span>
+                      {item.refundPreview?.error ? (
+                        <span className="text-xs text-red-600">
+                          Calculation error
+                        </span>
+                      ) : item.paymentMethod === 'ONLINE' ? (
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">
+                            ₹
+                            {Number(
+                              item.refundPreview?.refundAmount || 0,
+                            ).toFixed(2)}
+                          </div>
+
+                          <div className="mt-1 text-xs text-gray-500">
+                            Remaining: ₹
+                            {Number(
+                              item.refundPreview?.remainingRefundableAmount ||
+                                0,
+                            ).toFixed(2)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="text-sm font-semibold text-gray-700">
+                            ₹
+                            {Number(
+                              item.refundPreview?.refundAmount || 0,
+                            ).toFixed(2)}
+                          </div>
+
+                          <div className="mt-1 text-xs text-gray-500">COD</div>
+                        </div>
+                      )}
                     </td>
 
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-600">
@@ -371,7 +438,7 @@ export default function ReturnsPage() {
       {/* Return Details Modal */}
       {selectedReturn && !rejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl max-h-3/4 overflow-y-scroll">
+          <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl max-h-3/4 overflow-y-scroll">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -481,7 +548,21 @@ export default function ReturnsPage() {
                 <h3 className="mb-2 text-sm font-semibold text-gray-900">
                   Return Request
                 </h3>
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-medium text-gray-900">
+                    Return Type:
+                  </span>
 
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      selectedReturn.returnRequest?.returnType === 'FULL'
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-orange-100 text-orange-700'
+                    }`}
+                  >
+                    {selectedReturn.returnRequest?.returnType || '-'}
+                  </span>
+                </div>
                 <div className="rounded-lg border border-gray-200 p-4">
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-sm font-medium text-gray-900">
@@ -528,6 +609,228 @@ export default function ReturnsPage() {
                   )}
                 </div>
               </div>
+              {/* Returned Items */}
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-gray-900">
+                  Returned Items
+                </h3>
+
+                {Array.isArray(selectedReturn.returnRequest?.items) &&
+                selectedReturn.returnRequest.items.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedReturn.returnRequest.items.map(
+                      (returnItem, index) => {
+                        const orderItem = selectedReturn.items?.find(
+                          (item) =>
+                            String(item._id) === String(returnItem.orderItemId),
+                        );
+
+                        return (
+                          <div
+                            key={`${returnItem.orderItemId}-${index}`}
+                            className="rounded-lg border border-gray-200 bg-gray-50 p-4"
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {orderItem?.name || 'Product'}
+                                </p>
+
+                                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                                  <span>
+                                    Size:{' '}
+                                    <strong className="text-gray-700">
+                                      {orderItem?.size || 'N/A'}
+                                    </strong>
+                                  </span>
+
+                                  <span>
+                                    Ordered Qty:{' '}
+                                    <strong className="text-gray-700">
+                                      {orderItem?.quantity || 0}
+                                    </strong>
+                                  </span>
+
+                                  <span>
+                                    Return Qty:{' '}
+                                    <strong className="text-gray-700">
+                                      {returnItem.quantity}
+                                    </strong>
+                                  </span>
+                                </div>
+                              </div>
+
+                              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                                {reasonLabels[returnItem.reason] ||
+                                  returnItem.reason ||
+                                  'Other'}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 border-t border-gray-200 pt-3">
+                              <p className="text-xs font-medium text-gray-500">
+                                Item Details
+                              </p>
+
+                              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+                                {returnItem.comment ||
+                                  'No item comment provided.'}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      },
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">
+                    No item-level return details available.
+                  </div>
+                )}
+              </div>
+              {/* Refund Preview */}
+              {selectedReturn.refundPreview &&
+                !selectedReturn.refundPreview.error && (
+                  <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-green-900">
+                        Refund Preview
+                      </h3>
+
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-green-700">
+                        {selectedReturn.returnRequest?.returnType || '-'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 space-y-2 text-sm">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-600">Order Total</span>
+
+                        <span className="font-medium text-gray-900">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview.orderTotal || 0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-600">
+                          Returned Item Value
+                        </span>
+
+                        <span className="font-medium text-gray-900">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview.returnedSubtotal || 0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-600">
+                          Coupon Discount Allocated
+                        </span>
+
+                        <span className="font-medium text-red-600">
+                          - ₹
+                          {Number(
+                            selectedReturn.refundPreview
+                              .allocatedCouponDiscount || 0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-600">
+                          Refundable Subtotal
+                        </span>
+
+                        <span className="font-medium text-gray-900">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview.refundableSubtotal ||
+                              0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-600">Allocated Tax</span>
+
+                        <span className="font-medium text-gray-900">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview.allocatedTax || 0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-600">Shipping Refund</span>
+
+                        <span className="font-medium text-gray-900">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview.refundableShipping ||
+                              0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="my-3 border-t border-green-200" />
+
+                      <div className="flex justify-between gap-4">
+                        <span className="font-semibold text-green-900">
+                          Refund Amount
+                        </span>
+
+                        <span className="text-lg font-bold text-green-700">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview.refundAmount || 0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <span className="text-xs text-gray-500">
+                          Already Refunded
+                        </span>
+
+                        <span className="text-xs font-medium text-gray-700">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview.totalRefundedAmount ||
+                              0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <span className="text-xs text-gray-500">
+                          Remaining Refundable
+                        </span>
+
+                        <span className="text-xs font-medium text-gray-700">
+                          ₹
+                          {Number(
+                            selectedReturn.refundPreview
+                              .remainingRefundableAmount || 0,
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {selectedReturn.refundPreview.exceedsRemaining && (
+                      <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        The calculated return refund exceeds the remaining
+                        refundable amount for this order. Completion must be
+                        blocked until this is resolved.
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
 
             {/* Actions */}
@@ -657,7 +960,7 @@ export default function ReturnsPage() {
       )}
       {completeModal && completeReturnData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl max-h-3/4 overflow-y-scroll">
             {/* Header */}
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div>
@@ -666,7 +969,7 @@ export default function ReturnsPage() {
                 </h2>
 
                 <p className="text-sm text-gray-500">
-                  Review the return before completing it.
+                  Inspect the returned product before completing the return.
                 </p>
               </div>
 
@@ -701,30 +1004,19 @@ export default function ReturnsPage() {
                 </div>
               </div>
 
-              {/* Payment / Refund */}
+              {/* Payment Information */}
               {completeReturnData.paymentMethod === 'ONLINE' ? (
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                   <h3 className="font-semibold text-blue-900">
-                    Online Payment Refund
+                    Online Payment
                   </h3>
 
                   <div className="mt-3 space-y-2 text-sm">
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-4">
                       <span className="text-gray-600">Payment Provider</span>
 
                       <span className="font-medium">
                         {completeReturnData.paymentProvider || 'RAZORPAY'}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Refund Amount</span>
-
-                      <span className="font-bold text-blue-700">
-                        ₹
-                        {Number(
-                          completeReturnData.totalAmount || 0,
-                        ).toLocaleString('en-IN')}
                       </span>
                     </div>
 
@@ -739,10 +1031,129 @@ export default function ReturnsPage() {
                     )}
                   </div>
 
-                  <div className="mt-4 rounded-lg bg-white p-3 text-sm text-blue-800">
-                    The Razorpay refund will be processed when you complete this
-                    return.
-                  </div>
+                  {completeReturnData.refundPreview &&
+                    !completeReturnData.refundPreview.error && (
+                      <div className="mt-4 rounded-lg border border-blue-200 bg-white p-4">
+                        <h4 className="font-semibold text-blue-900">
+                          Refund Breakdown
+                        </h4>
+
+                        <div className="mt-3 space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Return Type</span>
+
+                            <span className="font-semibold">
+                              {completeReturnData.refundPreview.returnType}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">
+                              Returned Item Value
+                            </span>
+
+                            <span>
+                              ₹
+                              {Number(
+                                completeReturnData.refundPreview
+                                  .returnedSubtotal || 0,
+                              ).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">
+                              Coupon Discount
+                            </span>
+
+                            <span className="text-red-600">
+                              - ₹
+                              {Number(
+                                completeReturnData.refundPreview
+                                  .allocatedCouponDiscount || 0,
+                              ).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">
+                              Refundable Subtotal
+                            </span>
+
+                            <span>
+                              ₹
+                              {Number(
+                                completeReturnData.refundPreview
+                                  .refundableSubtotal || 0,
+                              ).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Tax</span>
+
+                            <span>
+                              ₹
+                              {Number(
+                                completeReturnData.refundPreview.allocatedTax ||
+                                  0,
+                              ).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">
+                              Shipping Refund
+                            </span>
+
+                            <span>
+                              ₹
+                              {Number(
+                                completeReturnData.refundPreview
+                                  .refundableShipping || 0,
+                              ).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="border-t border-gray-200 pt-2" />
+
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-gray-900">
+                              Refund Amount
+                            </span>
+
+                            <span className="text-lg font-bold text-blue-700">
+                              ₹
+                              {Number(
+                                completeReturnData.refundPreview.refundAmount ||
+                                  0,
+                              ).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">
+                              Remaining Refundable
+                            </span>
+
+                            <span className="font-medium text-gray-700">
+                              ₹
+                              {Number(
+                                completeReturnData.refundPreview
+                                  .remainingRefundableAmount || 0,
+                              ).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {completeReturnData.refundPreview.exceedsRemaining && (
+                          <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                            Refund cannot be processed because the calculated
+                            amount exceeds the remaining refundable amount.
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
               ) : (
                 <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
@@ -752,12 +1163,90 @@ export default function ReturnsPage() {
 
                   <p className="mt-2 text-sm text-gray-600">
                     No online payment refund is required for this order.
-                    Completing the return will restore the returned inventory.
+                    Completing the return will process the returned inventory
+                    according to the inspection result.
                   </p>
                 </div>
               )}
 
-              {/* Inventory */}
+              {/* Return Inspection */}
+              <div className="rounded-xl border border-purple-200 bg-purple-50 p-4">
+                <h3 className="font-semibold text-purple-900">
+                  Return Inspection
+                </h3>
+
+                <p className="mt-1 text-sm text-purple-700">
+                  Select the condition of the returned product.
+                </p>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {/* Resellable */}
+                  <button
+                    type="button"
+                    onClick={() => setInspectionCondition('RESELLABLE')}
+                    disabled={!!processingId}
+                    className={`rounded-lg border px-4 py-3 text-sm font-medium transition ${
+                      inspectionCondition === 'RESELLABLE'
+                        ? 'border-green-500 bg-green-100 text-green-700'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                  >
+                    <div className="font-semibold">Resellable</div>
+
+                    <div className="mt-1 text-xs">
+                      Product can return to inventory
+                    </div>
+                  </button>
+
+                  {/* Damaged */}
+                  <button
+                    type="button"
+                    onClick={() => setInspectionCondition('DAMAGED')}
+                    disabled={!!processingId}
+                    className={`rounded-lg border px-4 py-3 text-sm font-medium transition ${
+                      inspectionCondition === 'DAMAGED'
+                        ? 'border-red-500 bg-red-100 text-red-700'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                  >
+                    <div className="font-semibold">Damaged</div>
+
+                    <div className="mt-1 text-xs">
+                      Product will not return to sellable stock
+                    </div>
+                  </button>
+                </div>
+
+                {/* Inspection Comment */}
+                <div className="mt-4">
+                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                    Inspection Comment
+                    {inspectionCondition === 'DAMAGED' && (
+                      <span className="text-red-500"> *</span>
+                    )}
+                  </label>
+
+                  <textarea
+                    value={inspectionComment}
+                    onChange={(e) => setInspectionComment(e.target.value)}
+                    maxLength={500}
+                    rows={4}
+                    disabled={!!processingId}
+                    placeholder={
+                      inspectionCondition === 'DAMAGED'
+                        ? 'Describe the damage found on the returned product...'
+                        : 'Add inspection notes...'
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-purple-500 focus:ring-1 focus:ring-purple-500 disabled:cursor-not-allowed disabled:bg-gray-100"
+                  />
+
+                  <div className="mt-1 text-right text-xs text-gray-500">
+                    {inspectionComment.length}/500
+                  </div>
+                </div>
+              </div>
+
+              {/* After Completion */}
               <div className="rounded-xl border border-green-200 bg-green-50 p-4">
                 <h3 className="font-semibold text-green-900">
                   After Completion
@@ -765,18 +1254,30 @@ export default function ReturnsPage() {
 
                 <ul className="mt-2 space-y-1 text-sm text-green-800">
                   <li>• Return will be marked as COMPLETED.</li>
-                  <li>• Inventory will be restored.</li>
+
+                  <li>
+                    • Only the returned items and quantities will be processed.
+                  </li>
+
+                  <li>• Resellable items will be restored to inventory.</li>
+
+                  <li>
+                    • Damaged items will be recorded as damaged inventory.
+                  </li>
 
                   {completeReturnData.paymentMethod === 'ONLINE' && (
-                    <li>• Razorpay refund will be initiated.</li>
+                    <li>
+                      • Refund processing will be handled according to the
+                      returned-item amount.
+                    </li>
                   )}
                 </ul>
               </div>
 
               {/* Warning */}
               <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
-                Make sure the returned product has been received and checked
-                before completing this return.
+                Make sure the returned product has been received and physically
+                inspected before completing this return.
               </div>
             </div>
 
@@ -794,10 +1295,23 @@ export default function ReturnsPage() {
               <button
                 type="button"
                 onClick={handleComplete}
-                disabled={!!processingId}
+                disabled={
+                  !!processingId ||
+                  !inspectionCondition ||
+                  (completeReturnData.paymentMethod === 'ONLINE' &&
+                    (!completeReturnData.refundPreview ||
+                      completeReturnData.refundPreview.error ||
+                      completeReturnData.refundPreview.exceedsRemaining))
+                }
                 className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {processingId ? 'Processing...' : 'Complete Return'}
+                {processingId
+                  ? 'Processing...'
+                  : completeReturnData.paymentMethod === 'ONLINE'
+                    ? `Complete Return & Refund ₹${Number(
+                        completeReturnData.refundPreview?.refundAmount || 0,
+                      ).toFixed(2)}`
+                    : 'Complete Return'}
               </button>
             </div>
           </div>

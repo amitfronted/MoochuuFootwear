@@ -34,6 +34,7 @@ import {
   releaseStockReservation,
   commitStockReservation,
 } from '../utils/stockReservation.js';
+import { calculateReturnRefund } from '../utils/returnRefundCalculator.js';
 
 /**
  * Generate unique order number
@@ -6039,7 +6040,15 @@ export const requestOrderReturnController = async (req, res) => {
  *
  * Only ADMIN / SUPER_ADMIN can access.
  *
- * Returns orders where returnStatus is REQUESTED.
+ * Returns:
+ * - Return type FULL / PARTIAL
+ * - Returned item information
+ * - Refund calculation preview
+ * - Existing refund totals
+ *
+ * IMPORTANT:
+ * This is only a PREVIEW.
+ * No refund is created here.
  *
  * ============================================================
  */
@@ -6054,10 +6063,80 @@ export const getAllReturnRequestsController = async (req, res) => {
       .populate('userId', 'name email')
       .sort({ 'returnRequest.requestedAt': -1 });
 
+    const data = orders.map((order) => {
+      const orderObject = order.toObject();
+
+      let refundPreview = null;
+
+      /**
+       * --------------------------------------------------------
+       * Calculate return refund preview
+       * --------------------------------------------------------
+       */
+      if (
+        order.returnRequest &&
+        Array.isArray(order.returnRequest.items) &&
+        order.returnRequest.items.length > 0
+      ) {
+        try {
+          const calculation = calculateReturnRefund(order);
+
+          const orderTotal = Number(order.totalAmount) || 0;
+
+          const totalRefundedAmount = Number(order.totalRefundedAmount || 0);
+
+          const remainingRefundableAmount = Math.max(
+            Number(
+              order.remainingRefundableAmount ??
+                orderTotal - totalRefundedAmount,
+            ) || 0,
+            0,
+          );
+
+          refundPreview = {
+            orderTotal,
+
+            returnType:
+              order.returnRequest.returnType || calculation.returnType,
+
+            returnedSubtotal: calculation.returnedSubtotal,
+
+            allocatedCouponDiscount: calculation.allocatedCouponDiscount,
+
+            refundableSubtotal: calculation.refundableSubtotal,
+
+            allocatedTax: calculation.allocatedTax,
+
+            refundableShipping: calculation.refundableShipping,
+
+            refundAmount: calculation.refundAmount,
+
+            totalRefundedAmount,
+
+            remainingRefundableAmount,
+
+            exceedsRemaining:
+              calculation.refundAmount > remainingRefundableAmount + 0.01,
+          };
+        } catch (error) {
+          console.error(`RETURN REFUND PREVIEW ERROR ${order._id}:`, error);
+
+          refundPreview = {
+            error: error?.message || 'Unable to calculate refund preview.',
+          };
+        }
+      }
+
+      return {
+        ...orderObject,
+        refundPreview,
+      };
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Return requests fetched successfully.',
-      data: orders,
+      data,
     });
   } catch (error) {
     console.error('GET RETURN REQUESTS ERROR:', error);
@@ -6565,21 +6644,36 @@ export const completeOrderReturnController = async (req, res) => {
         const inventoryEntries = [];
 
         // ------------------------------------------------------
-        // 9. Process inventory
+        // 9. Process ONLY requested return items
         //
-        // RESELLABLE:
-        //   restore stock
-        //
-        // DAMAGED:
-        //   DO NOT restore stock
-        //   create DAMAGE audit records
+        // IMPORTANT:
+        // Do not restore the complete order quantity.
+        // Only restore the quantity actually returned.
         // ------------------------------------------------------
 
-        for (const item of currentOrder.items) {
-          const quantity = Number(item.quantity);
+        const returnItems = currentOrder.returnRequest.items || [];
+
+        if (!returnItems.length) {
+          throw new Error('Return items are missing.');
+        }
+
+        for (const returnItem of returnItems) {
+          const item = currentOrder.items.id(returnItem.orderItemId);
+
+          if (!item) {
+            throw new Error('Returned order item not found.');
+          }
+
+          const quantity = Number(returnItem.quantity);
 
           if (!Number.isInteger(quantity) || quantity < 1) {
             throw new Error(`Invalid quantity for ${item.name}.`);
+          }
+
+          if (quantity > Number(item.quantity)) {
+            throw new Error(
+              `Returned quantity cannot exceed ordered quantity for ${item.name}.`,
+            );
           }
 
           // ====================================================
@@ -6736,7 +6830,6 @@ export const completeOrderReturnController = async (req, res) => {
             }
 
             const color = componentDoc.colors.id(colorId);
-
             const variant = color?.variants.id(variantId);
 
             if (!color || !variant) {
@@ -6832,43 +6925,71 @@ export const completeOrderReturnController = async (req, res) => {
         currentOrder.returnStatus = 'COMPLETED';
 
         // ------------------------------------------------------
-        // 12. Online refund starts as PENDING
+        // 12. Calculate exact return refund amount
         //
-        // Actual final REFUNDED status will be handled by
-        // Razorpay refund webhook.
+        // IMPORTANT:
+        // For partial returns this is NOT the complete order total.
+        // The calculator allocates:
+        // - returned item value
+        // - coupon discount
+        // - tax
+        //
+        // Full return uses original totalAmount.
         // ------------------------------------------------------
 
         if (currentOrder.paymentMethod === 'ONLINE') {
-          const refundAmountPaise = Math.round(
-            Number(currentOrder.totalAmount) * 100,
+          const refundCalculation = calculateReturnRefund(currentOrder);
+
+          const refundAmount = Number(refundCalculation.refundAmount);
+
+          if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+            throw new Error('Invalid calculated refund amount.');
+          }
+
+          const currentRemainingRefundable = Number(
+            currentOrder.remainingRefundableAmount,
           );
 
-          if (!Number.isFinite(refundAmountPaise) || refundAmountPaise <= 0) {
-            throw new Error('Invalid refund amount.');
+          const fallbackRemainingRefundable =
+            Number(currentOrder.totalAmount || 0) -
+            Number(currentOrder.totalRefundedAmount || 0);
+
+          const remainingRefundableAmount =
+            Number.isFinite(currentRemainingRefundable) &&
+            currentRemainingRefundable >= 0
+              ? currentRemainingRefundable
+              : fallbackRemainingRefundable;
+
+          if (
+            !Number.isFinite(remainingRefundableAmount) ||
+            remainingRefundableAmount <= 0
+          ) {
+            throw new Error('No refundable amount remains for this order.');
           }
 
-          if (currentOrder.paymentMethod === 'ONLINE') {
-            const alreadyRefunded =
-              currentOrder.refundStatus === 'PROCESSED' ||
-              currentOrder.paymentStatus === 'REFUNDED';
-
-            if (!alreadyRefunded) {
-              const refundAmountPaise = Math.round(
-                Number(currentOrder.totalAmount) * 100,
-              );
-
-              if (
-                !Number.isFinite(refundAmountPaise) ||
-                refundAmountPaise <= 0
-              ) {
-                throw new Error('Invalid refund amount.');
-              }
-
-              currentOrder.refundAmount = refundAmountPaise / 100;
-              currentOrder.refundStatus = 'PENDING';
-              currentOrder.refundFailureReason = '';
-            }
+          if (refundAmount > Number(remainingRefundableAmount.toFixed(2))) {
+            throw new Error(
+              `Calculated refund amount ₹${refundAmount.toFixed(
+                2,
+              )} exceeds the remaining refundable amount ₹${remainingRefundableAmount.toFixed(
+                2,
+              )}.`,
+            );
           }
+
+          const refundAmountPaise = Math.round(refundAmount * 100);
+
+          if (!Number.isInteger(refundAmountPaise) || refundAmountPaise <= 0) {
+            throw new Error('Invalid refund amount in paise.');
+          }
+
+          // Save the exact amount that will be requested
+          // from Razorpay.
+          currentOrder.refundAmount = refundAmount;
+
+          currentOrder.refundStatus = 'PENDING';
+
+          currentOrder.refundFailureReason = '';
 
           // Do not set paymentStatus = REFUNDED here.
           //
@@ -6897,10 +7018,66 @@ export const completeOrderReturnController = async (req, res) => {
     // ----------------------------------------------------------
 
     if (order.paymentMethod === 'ONLINE' && shouldCreateRefund) {
-      const refundAmountPaise = Math.round(Number(order.totalAmount) * 100);
+      // --------------------------------------------------------
+      // Calculate refund from the latest completed/order data.
+      //
+      // For a new completion use the transaction result.
+      // For a failed refund retry use the existing order.
+      // --------------------------------------------------------
 
-      if (!Number.isFinite(refundAmountPaise) || refundAmountPaise <= 0) {
-        throw new Error('Invalid refund amount.');
+      const refundSourceOrder = completedOrder || order;
+
+      const refundCalculation = calculateReturnRefund(refundSourceOrder);
+
+      const refundAmount = Number(refundCalculation.refundAmount);
+
+      if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+        throw new Error('Invalid calculated refund amount.');
+      }
+
+      // --------------------------------------------------------
+      // Determine remaining refundable amount.
+      // --------------------------------------------------------
+
+      const orderRemainingRefundable = Number(
+        refundSourceOrder.remainingRefundableAmount,
+      );
+
+      const fallbackRemainingRefundable =
+        Number(refundSourceOrder.totalAmount || 0) -
+        Number(refundSourceOrder.totalRefundedAmount || 0);
+
+      const remainingRefundableAmount =
+        Number.isFinite(orderRemainingRefundable) &&
+        orderRemainingRefundable >= 0
+          ? orderRemainingRefundable
+          : fallbackRemainingRefundable;
+
+      if (
+        !Number.isFinite(remainingRefundableAmount) ||
+        remainingRefundableAmount <= 0
+      ) {
+        throw new Error('No refundable amount remains for this order.');
+      }
+
+      // --------------------------------------------------------
+      // Never allow refund to exceed remaining refundable value.
+      // --------------------------------------------------------
+
+      if (refundAmount > Number(remainingRefundableAmount.toFixed(2))) {
+        throw new Error(
+          `Calculated refund amount ₹${refundAmount.toFixed(
+            2,
+          )} exceeds the remaining refundable amount ₹${remainingRefundableAmount.toFixed(
+            2,
+          )}.`,
+        );
+      }
+
+      const refundAmountPaise = Math.round(refundAmount * 100);
+
+      if (!Number.isInteger(refundAmountPaise) || refundAmountPaise <= 0) {
+        throw new Error('Invalid refund amount in paise.');
       }
 
       let refundIdempotencyKey = `RETURN_${order._id}`;
@@ -6926,15 +7103,25 @@ export const completeOrderReturnController = async (req, res) => {
       try {
         refund = await createRazorpayRefund({
           paymentId: order.razorpayPaymentId,
+
+          // IMPORTANT:
+          // This is now the calculated PARTIAL/FULL
+          // return refund amount.
           amount: refundAmountPaise,
+
           speed: 'normal',
+
           receipt: refundReceipt,
+
           idempotencyKey: refundIdempotencyKey,
+
           notes: {
             orderId: String(order._id),
             orderNumber: order.orderNumber,
             reason: 'Customer return completed',
             condition,
+            returnType: order.returnRequest?.returnType || 'UNKNOWN',
+            refundAmount: refundAmount.toFixed(2),
           },
         });
 
@@ -6952,8 +7139,11 @@ export const completeOrderReturnController = async (req, res) => {
 
         const refundUpdate = {
           refundId: refund.id,
-          refundAmount: Number(refund.amount || 0) / 100,
+
+          refundAmount: Number(refund.amount || refundAmountPaise) / 100,
+
           refundStatus: 'PENDING',
+
           refundFailureReason: '',
         };
 
@@ -7045,6 +7235,7 @@ export const completeOrderReturnController = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+
       message:
         finalOrder.paymentMethod === 'ONLINE'
           ? finalOrder.refundStatus === 'PROCESSED' ||
@@ -7052,6 +7243,7 @@ export const completeOrderReturnController = async (req, res) => {
             ? 'Return completed and refund processed successfully.'
             : 'Return completed successfully. Refund is being processed.'
           : 'Return completed successfully.',
+
       data: {
         order: finalOrder,
         refund: refundResponse,
