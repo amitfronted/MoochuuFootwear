@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import OrderDetailsModal from '@/app/components/OrderDetailsModal';
+import ShippingDetailsModal from '@/app/components/ShippingDetailsModal';
+import RefundManagementModal from '@/app/components/RefundManagementModal';
 
 import {
   fetchAllOrders,
@@ -59,6 +61,10 @@ const OrdersPage = () => {
   const [paymentFilter, setPaymentFilter] = useState('');
 
   const [selectedOrder, setSelectedOrder] = useState(null);
+
+  const [shippingModalOrder, setShippingModalOrder] = useState(null);
+
+  const [refundModalOrder, setRefundModalOrder] = useState(null);
 
   const [updatingOrderId, setUpdatingOrderId] = useState(null);
 
@@ -365,7 +371,28 @@ const OrdersPage = () => {
       status,
     });
 
+    // -----------------------------------------
+    // SHIPPED REQUIRES SHIPPING MODAL
+    // -----------------------------------------
+    if (status === 'SHIPPED') {
+      const order = orders.find((item) => item._id === orderId);
+
+      if (!order) {
+        toast.error('Order not found');
+        return;
+      }
+
+      setShippingModalOrder(order);
+
+      return;
+    }
+
+    // -----------------------------------------
+    // OTHER STATUS CHANGES
+    // -----------------------------------------
     try {
+      setUpdatingOrderId(orderId);
+
       const response = await updateOrderStatus(orderId, status);
 
       console.log('STATUS RESPONSE:', response);
@@ -380,12 +407,126 @@ const OrdersPage = () => {
         }
 
         await loadOrders();
+      } else {
+        toast.error(response.message || 'Failed to update status');
       }
     } catch (error) {
       console.error('STATUS ERROR:', error.response?.data);
 
       toast.error(error.response?.data?.message || 'Failed to update status');
+    } finally {
+      setUpdatingOrderId(null);
     }
+  };
+
+  const handleSaveShippingAndShip = async (orderId, shippingDetails) => {
+    if (!orderId) return;
+
+    try {
+      setUpdatingOrderId(orderId);
+
+      // -----------------------------------------
+      // 1. SAVE SHIPPING DETAILS
+      // -----------------------------------------
+      const shippingResponse = await updateOrderShipping(
+        orderId,
+        shippingDetails,
+      );
+
+      if (!shippingResponse.success) {
+        toast.error(
+          shippingResponse.message || 'Failed to save shipping details',
+        );
+
+        return;
+      }
+
+      // -----------------------------------------
+      // 2. MARK ORDER AS SHIPPED
+      // -----------------------------------------
+      const statusResponse = await updateOrderStatus(orderId, 'SHIPPED');
+
+      if (!statusResponse.success) {
+        toast.error(
+          statusResponse.message ||
+            'Shipping details saved, but order status could not be changed.',
+        );
+
+        await loadOrders();
+
+        return;
+      }
+
+      // -----------------------------------------
+      // SUCCESS
+      // -----------------------------------------
+      toast.success('Shipping details saved and order marked as shipped');
+
+      const updatedOrder = statusResponse.data?.order || statusResponse.data;
+
+      if (selectedOrder?._id === orderId && updatedOrder) {
+        setSelectedOrder(updatedOrder);
+      }
+
+      setShippingModalOrder(null);
+
+      await loadOrders();
+    } catch (error) {
+      console.error(
+        'SAVE SHIPPING + SHIP ERROR:',
+        error.response?.data || error,
+      );
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          'Failed to ship order',
+      );
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleOpenRefundModal = async (order) => {
+    if (!order?._id) return;
+
+    setRefundModalOrder(order);
+
+    try {
+      setRefundLoading(true);
+
+      const response = await fetchRefundSummary(order._id);
+
+      if (response.success) {
+        setRefundSummary(response.data);
+      } else {
+        setRefundSummary(null);
+
+        toast.error(response.message || 'Failed to load refund information');
+      }
+    } catch (error) {
+      console.error(
+        'REFUND MODAL SUMMARY ERROR:',
+        error.response?.data || error,
+      );
+
+      setRefundSummary(null);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          'Failed to load refund information',
+      );
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
+  const handleCloseRefundModal = () => {
+    if (refundReconciling) return;
+
+    setRefundModalOrder(null);
+    setRefundSummary(null);
   };
 
   const handleShippingUpdate = async (orderId, shippingDetails) => {
@@ -904,6 +1045,27 @@ const OrdersPage = () => {
                                   })}
                                 </div>
                               )}
+                            {order.refundStatus &&
+                              order.refundStatus !== 'NONE' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenRefundModal(order)}
+                                  className="
+                                      mt-2
+                                      rounded-lg
+                                      border
+                                      border-slate-700
+                                      px-2.5
+                                      py-1.5
+                                      text-xs
+                                      font-semibold
+                                      text-slate-700
+                                      hover:bg-slate-100
+                                    "
+                                >
+                                  Manage Refund
+                                </button>
+                              )}
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
@@ -970,17 +1132,29 @@ const OrdersPage = () => {
           setSelectedOrder(null);
           setRefundSummary(null);
         }}
-        onStatusChange={handleStatusChange}
-        onMarkCodPaid={handleMarkCodPaid}
-        onShippingUpdate={handleShippingUpdate}
-        updatingOrderId={updatingOrderId}
         onPrintInvoice={printInvoice}
         refundSummary={refundSummary}
         refundLoading={refundLoading}
-        refundSubmitting={refundSubmitting}
+        onOpenRefund={handleOpenRefundModal}
+      />
+      <ShippingDetailsModal
+        order={shippingModalOrder}
+        saving={updatingOrderId === shippingModalOrder?._id}
+        onClose={() => {
+          if (updatingOrderId) return;
+
+          setShippingModalOrder(null);
+        }}
+        onSave={handleSaveShippingAndShip}
+      />
+
+      <RefundManagementModal
+        order={refundModalOrder}
+        refundSummary={refundSummary}
+        refundLoading={refundLoading}
         refundReconciling={refundReconciling}
-        onCreateRefund={handleCreateRefund}
-        onReconcileRefund={handleReconcileRefund}
+        onClose={handleCloseRefundModal}
+        onReconcile={handleReconcileRefund}
       />
     </>
   );

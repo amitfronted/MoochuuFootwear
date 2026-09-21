@@ -1,7 +1,3 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-
 const formatDateTime = (date) => {
   if (!date) return '-';
 
@@ -17,35 +13,11 @@ const formatDateTime = (date) => {
 const OrderDetailsModal = ({
   order,
   onClose,
-  onStatusChange,
-  onMarkCodPaid,
-  onShippingUpdate,
-  updatingOrderId,
   onPrintInvoice,
   refundSummary,
   refundLoading,
-  refundSubmitting,
-  refundReconciling,
-  onCreateRefund,
-  onReconcileRefund,
+  onOpenRefund,
 }) => {
-  const [courierName, setCourierName] = useState('');
-  const [trackingNumber, setTrackingNumber] = useState('');
-  const [trackingUrl, setTrackingUrl] = useState('');
-
-  const [refundAmount, setRefundAmount] = useState('');
-  const [refundReason, setRefundReason] = useState('');
-
-  useEffect(() => {
-    setCourierName(order?.shipping?.courierName || '');
-    setTrackingNumber(order?.shipping?.trackingNumber || '');
-    setTrackingUrl(order?.shipping?.trackingUrl || '');
-
-    // Reset refund form whenever a different order is opened.
-    setRefundAmount('');
-    setRefundReason('');
-  }, [order]);
-
   if (!order) return null;
 
   const isCodPending =
@@ -70,53 +42,6 @@ const OrderDetailsModal = ({
   const refundHistory = Array.isArray(refundSummary?.refunds)
     ? refundSummary.refunds
     : [];
-
-  const handleRefundSubmit = async () => {
-    const amount = Number(refundAmount);
-
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert('Please enter a valid refund amount.');
-      return;
-    }
-
-    if (amount > remainingRefundableAmount) {
-      alert(
-        `Refund amount cannot exceed the remaining refundable amount of ₹${remainingRefundableAmount.toLocaleString(
-          'en-IN',
-          {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          },
-        )}.`,
-      );
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Are you sure you want to refund ₹${amount.toLocaleString('en-IN', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })} for order #${order.orderNumber}?`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      await onCreateRefund?.(order._id, {
-        amount,
-        reason: refundReason.trim(),
-      });
-
-      // Clear only after the parent handler completes successfully.
-      setRefundAmount('');
-      setRefundReason('');
-    } catch (error) {
-      // Keep the form/idempotency attempt intact so the user can retry.
-      console.error('REFUND SUBMIT ERROR:', error);
-    }
-  };
 
   return (
     <div
@@ -206,37 +131,39 @@ const OrderDetailsModal = ({
           {/* ORDER STATUS */}
 
           <div className="border rounded-xl p-4">
-            <h3 className="font-bold mb-3">Order Status</h3>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select
-                value={order.orderStatus}
-                disabled={
-                  updatingOrderId === order._id ||
-                  order.orderStatus === 'CANCELLED'
-                }
-                onChange={(e) => onStatusChange(order._id, e.target.value)}
-                className="
-                  border
-                  rounded-lg
-                  px-3
-                  py-2
-                  flex-1
-                "
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-bold">Order Status</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Current status of this order.
+                </p>
+              </div>
+              <span
+                className={`
+                      inline-flex
+                      w-fit
+                      rounded-full
+                      px-3
+                      py-1.5
+                      text-xs
+                      font-bold
+                      ${
+                        order.orderStatus === 'DELIVERED'
+                          ? 'bg-green-100 text-green-700'
+                          : order.orderStatus === 'SHIPPED'
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : order.orderStatus === 'CANCELLED'
+                              ? 'bg-red-100 text-red-700'
+                              : order.orderStatus === 'PROCESSING'
+                                ? 'bg-purple-100 text-purple-700'
+                                : order.orderStatus === 'CONFIRMED'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-yellow-100 text-yellow-700'
+                      }
+                    `}
               >
-                <option value="PLACED">PLACED</option>
-                <option value="CONFIRMED">CONFIRMED</option>
-                <option value="PROCESSING">PROCESSING</option>
-                <option value="SHIPPED">SHIPPED</option>
-                <option value="DELIVERED">DELIVERED</option>
-                <option value="CANCELLED">CANCELLED</option>
-              </select>
-
-              {updatingOrderId === order._id && (
-                <div className="flex items-center text-sm text-slate-500">
-                  Updating...
-                </div>
-              )}
+                {order.orderStatus}
+              </span>
             </div>
           </div>
 
@@ -303,26 +230,77 @@ const OrderDetailsModal = ({
               </div>
             </div>
 
+            {/* SHIPPING INFORMATION - READ ONLY */}
+
             <div className="border rounded-xl p-4">
-              <h3 className="font-bold mb-3">Shipping Address</h3>
+              <div className="mb-4">
+                <h3 className="font-bold">Shipping Information</h3>
 
-              <div className="text-sm text-slate-700 space-y-1">
-                <p>{order.shippingAddress?.name}</p>
-
-                <p>{order.shippingAddress?.phone}</p>
-
-                <p>{order.shippingAddress?.addressLine1}</p>
-
-                <p>
-                  {order.shippingAddress?.city}, {order.shippingAddress?.state}
+                <p className="mt-1 text-xs text-slate-500">
+                  Shipment information for this order.
                 </p>
-
-                <p>{order.shippingAddress?.postalCode}</p>
-
-                {order.shippingAddress?.landmark && (
-                  <p>Landmark: {order.shippingAddress.landmark}</p>
-                )}
               </div>
+
+              {order.shipping?.courierName ||
+              order.shipping?.trackingNumber ||
+              order.shipping?.trackingUrl ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">
+                      Courier
+                    </p>
+
+                    <p className="mt-1 text-sm font-medium text-slate-900">
+                      {order.shipping?.courierName || '-'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">
+                      Tracking Number
+                    </p>
+
+                    <p className="mt-1 break-all text-sm font-medium text-slate-900">
+                      {order.shipping?.trackingNumber || '-'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">
+                      Tracking URL
+                    </p>
+
+                    {order.shipping?.trackingUrl ? (
+                      <a
+                        href={order.shipping.trackingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 block break-all text-sm font-medium text-blue-600 hover:underline"
+                      >
+                        Track Shipment
+                      </a>
+                    ) : (
+                      <p className="mt-1 text-sm text-slate-500">-</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+                  Shipping information has not been assigned yet.
+                </div>
+              )}
+
+              {order.shipping?.shippedAt && (
+                <div className="mt-4 border-t pt-4">
+                  <p className="text-xs font-semibold text-slate-500">
+                    Shipped At
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-700">
+                    {formatDateTime(order.shipping.shippedAt)}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -413,416 +391,131 @@ const OrderDetailsModal = ({
             </div>
           </div>
 
-          {/* SHIPPING DETAILS */}
+          {/* REFUND INFORMATION - READ ONLY */}
 
-          {['PROCESSING', 'SHIPPED', 'DELIVERED'].includes(
-            order.orderStatus,
-          ) && (
-            <div className="border rounded-xl p-4">
-              <div className="mb-4">
-                <h3 className="font-bold">Shipping Details</h3>
+          {order.paymentMethod === 'ONLINE' &&
+            order.paymentProvider === 'RAZORPAY' && (
+              <div className="border rounded-xl p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="font-bold">Refund Information</h3>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Courier information can be added when the courier is assigned.
-                </p>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600">
-                    Courier Name
-                  </label>
-
-                  <input
-                    value={courierName}
-                    onChange={(e) => setCourierName(e.target.value)}
-                    placeholder="Courier company"
-                    maxLength={100}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600">
-                    Tracking Number
-                  </label>
-
-                  <input
-                    value={trackingNumber}
-                    onChange={(e) => setTrackingNumber(e.target.value)}
-                    placeholder="Tracking number"
-                    maxLength={100}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600">
-                    Tracking URL
-                  </label>
-
-                  <input
-                    type="url"
-                    value={trackingUrl}
-                    onChange={(e) => setTrackingUrl(e.target.value)}
-                    placeholder="https://..."
-                    maxLength={500}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-slate-500">
-                  {order.shipping?.shippedAt
-                    ? `Shipped: ${formatDateTime(order.shipping.shippedAt)}`
-                    : order.shipping?.courierName ||
-                        order.shipping?.trackingNumber ||
-                        order.shipping?.trackingUrl
-                      ? 'Shipping details saved. Order is not marked as shipped yet.'
-                      : 'Shipping information not assigned yet.'}
-                </p>
-
-                <button
-                  type="button"
-                  disabled={updatingOrderId === order._id}
-                  onClick={() =>
-                    onShippingUpdate?.(order._id, {
-                      courierName,
-                      trackingNumber,
-                      trackingUrl,
-                    })
-                  }
-                  className="rounded-lg border border-slate-900 px-4 py-2 text-sm font-semibold hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {updatingOrderId === order._id
-                    ? 'Saving...'
-                    : 'Save Shipping Details'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* REFUND MANAGEMENT */}
-
-          {isRazorpayOrder && (
-            <div className="border rounded-xl p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="font-bold">Refund Management</h3>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    Refunds are processed through Razorpay.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={
-                    refundLoading || refundReconciling || refundSubmitting
-                  }
-                  onClick={() => onReconcileRefund?.(order._id)}
-                  className="
-                    rounded-lg
-                    border
-                    border-slate-700
-                    px-3
-                    py-2
-                    text-sm
-                    font-semibold
-                    hover:bg-slate-100
-                    disabled:cursor-not-allowed
-                    disabled:opacity-50
-                  "
-                >
-                  {refundReconciling ? 'Reconciling...' : 'Reconcile Refund'}
-                </button>
-              </div>
-
-              {/* REFUND SUMMARY */}
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-                <div className="rounded-lg bg-slate-50 border p-3">
-                  <p className="text-xs text-slate-500">Order Total</p>
-
-                  <p className="mt-1 font-bold">
-                    ₹
-                    {Number(
-                      refundSummary?.totalAmount || order.totalAmount || 0,
-                    ).toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </p>
-                </div>
-
-                <div className="rounded-lg bg-slate-50 border p-3">
-                  <p className="text-xs text-slate-500">Refunded</p>
-
-                  <p className="mt-1 font-bold text-green-700">
-                    ₹
-                    {totalRefundedAmount.toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </p>
-                </div>
-
-                <div className="rounded-lg bg-slate-50 border p-3">
-                  <p className="text-xs text-slate-500">Pending</p>
-
-                  <p className="mt-1 font-bold text-yellow-700">
-                    ₹
-                    {pendingRefundAmount.toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </p>
-                </div>
-
-                <div className="rounded-lg bg-slate-50 border p-3">
-                  <p className="text-xs text-slate-500">Remaining</p>
-
-                  <p className="mt-1 font-bold">
-                    ₹
-                    {remainingRefundableAmount.toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </p>
-                </div>
-              </div>
-
-              {/* REFUND STATUS */}
-
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold">Refund Status:</span>
-
-                <span
-                  className={`
-                    rounded-full
-                    px-3
-                    py-1
-                    text-xs
-                    font-bold
-                    ${
-                      refundStatus === 'PROCESSED'
-                        ? 'bg-green-100 text-green-700'
-                        : refundStatus === 'PARTIAL'
-                          ? 'bg-blue-100 text-blue-700'
-                          : refundStatus === 'PENDING'
-                            ? 'bg-yellow-100 text-yellow-700'
-                            : refundStatus === 'FAILED'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-slate-100 text-slate-700'
-                    }
-                  `}
-                >
-                  {refundStatus}
-                </span>
-              </div>
-
-              {refundLoading ? (
-                <div className="mt-4 rounded-lg border bg-slate-50 p-4 text-sm text-slate-500">
-                  Loading refund information...
-                </div>
-              ) : (
-                <>
-                  {/* CREATE REFUND */}
-
-                  {remainingRefundableAmount > 0 &&
-                    refundStatus !== 'PROCESSED' && (
-                      <div className="mt-5 border-t pt-5">
-                        <h4 className="font-semibold">Create Refund</h4>
-
-                        <div className="grid gap-3 md:grid-cols-2 mt-3">
-                          <div>
-                            <label className="mb-1 block text-xs font-semibold text-slate-600">
-                              Refund Amount (₹)
-                            </label>
-
-                            <input
-                              type="number"
-                              min="0.01"
-                              max={remainingRefundableAmount}
-                              step="0.01"
-                              value={refundAmount}
-                              onChange={(e) => setRefundAmount(e.target.value)}
-                              placeholder="Enter refund amount"
-                              disabled={refundSubmitting || refundReconciling}
-                              className="
-                                w-full
-                                rounded-lg
-                                border
-                                px-3
-                                py-2
-                                text-sm
-                                disabled:cursor-not-allowed
-                                disabled:bg-slate-100
-                              "
-                            />
-
-                            <p className="mt-1 text-xs text-slate-500">
-                              Maximum refundable: ₹
-                              {remainingRefundableAmount.toLocaleString(
-                                'en-IN',
-                                {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                },
-                              )}
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className="mb-1 block text-xs font-semibold text-slate-600">
-                              Reason
-                            </label>
-
-                            <input
-                              type="text"
-                              value={refundReason}
-                              onChange={(e) => setRefundReason(e.target.value)}
-                              placeholder="Reason for refund"
-                              maxLength={500}
-                              disabled={refundSubmitting || refundReconciling}
-                              className="
-                                w-full
-                                rounded-lg
-                                border
-                                px-3
-                                py-2
-                                text-sm
-                                disabled:cursor-not-allowed
-                                disabled:bg-slate-100
-                              "
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex justify-end">
-                          <button
-                            type="button"
-                            disabled={
-                              refundSubmitting ||
-                              refundReconciling ||
-                              refundLoading ||
-                              remainingRefundableAmount <= 0 ||
-                              !refundAmount
-                            }
-                            onClick={handleRefundSubmit}
-                            className="
-                              rounded-lg
-                              border
-                              border-red-600
-                              px-4
-                              py-2
-                              text-sm
-                              font-semibold
-                              text-red-700
-                              hover:bg-red-50
-                              disabled:cursor-not-allowed
-                              disabled:opacity-50
-                            "
-                          >
-                            {refundSubmitting
-                              ? 'Processing Refund...'
-                              : 'Create Refund'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                  {/* REFUND HISTORY */}
-
-                  <div className="mt-5 border-t pt-5">
-                    <h4 className="font-semibold">Refund History</h4>
-
-                    {refundHistory.length === 0 ? (
-                      <p className="mt-3 text-sm text-slate-500">
-                        No refunds have been created for this order.
-                      </p>
-                    ) : (
-                      <div className="mt-3 space-y-3">
-                        {refundHistory.map((refund) => (
-                          <div
-                            key={refund._id}
-                            className="rounded-lg border p-3"
-                          >
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="font-semibold">
-                                  ₹
-                                  {Number(refund.amount || 0).toLocaleString(
-                                    'en-IN',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )}
-                                </p>
-
-                                <p className="text-xs text-slate-500 mt-1">
-                                  Requested:{' '}
-                                  {formatDateTime(
-                                    refund.requestedAt || refund.createdAt,
-                                  )}
-                                </p>
-                              </div>
-
-                              <span
-                                className={`
-                                  self-start
-                                  rounded-full
-                                  px-2.5
-                                  py-1
-                                  text-xs
-                                  font-bold
-                                  ${
-                                    refund.status === 'PROCESSED'
-                                      ? 'bg-green-100 text-green-700'
-                                      : refund.status === 'PENDING'
-                                        ? 'bg-yellow-100 text-yellow-700'
-                                        : 'bg-red-100 text-red-700'
-                                  }
-                                `}
-                              >
-                                {refund.status}
-                              </span>
-                            </div>
-
-                            {refund.reason && (
-                              <p className="mt-2 text-sm text-slate-700">
-                                <b>Reason:</b> {refund.reason}
-                              </p>
-                            )}
-
-                            {refund.razorpayRefundId && (
-                              <p className="mt-1 text-xs text-slate-500 break-all">
-                                Razorpay Refund ID: {refund.razorpayRefundId}
-                              </p>
-                            )}
-
-                            {refund.failureReason && (
-                              <p className="mt-2 text-xs text-red-600">
-                                <b>Failure:</b> {refund.failureReason}
-                              </p>
-                            )}
-
-                            {refund.processedAt && (
-                              <p className="mt-1 text-xs text-slate-500">
-                                Processed: {formatDateTime(refund.processedAt)}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <p className="mt-1 text-xs text-slate-500">
+                      Refund status and amounts for this order.
+                    </p>
                   </div>
-                </>
-              )}
-            </div>
-          )}
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenRefund?.(order)}
+                    className="
+            rounded-lg
+            border
+            border-slate-800
+            px-4
+            py-2
+            text-sm
+            font-semibold
+            text-slate-800
+            hover:bg-slate-100
+          "
+                  >
+                    Manage Refund
+                  </button>
+                </div>
+
+                {refundLoading ? (
+                  <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+                    Loading refund information...
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <div className="rounded-lg border bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Order Total</p>
+
+                      <p className="mt-1 font-bold">
+                        ₹
+                        {Number(
+                          refundSummary?.totalAmount || order.totalAmount || 0,
+                        ).toLocaleString('en-IN', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Refunded</p>
+
+                      <p className="mt-1 font-bold text-green-700">
+                        ₹
+                        {Number(
+                          refundSummary?.totalRefundedAmount || 0,
+                        ).toLocaleString('en-IN', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Pending</p>
+
+                      <p className="mt-1 font-bold text-yellow-700">
+                        ₹
+                        {Number(
+                          refundSummary?.pendingRefundAmount || 0,
+                        ).toLocaleString('en-IN', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Remaining</p>
+
+                      <p className="mt-1 font-bold">
+                        ₹
+                        {Number(
+                          refundSummary?.remainingRefundableAmount || 0,
+                        ).toLocaleString('en-IN', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="text-sm font-semibold">Refund Status:</span>
+
+                  <span
+                    className={`
+            rounded-full
+            px-3
+            py-1
+            text-xs
+            font-bold
+            ${
+              refundSummary?.refundStatus === 'PROCESSED'
+                ? 'bg-green-100 text-green-700'
+                : refundSummary?.refundStatus === 'PARTIAL'
+                  ? 'bg-blue-100 text-blue-700'
+                  : refundSummary?.refundStatus === 'PENDING'
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : refundSummary?.refundStatus === 'FAILED'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-slate-100 text-slate-700'
+            }
+          `}
+                  >
+                    {refundSummary?.refundStatus || 'NONE'}
+                  </span>
+                </div>
+              </div>
+            )}
 
           {/* PAYMENT + TOTAL */}
 
