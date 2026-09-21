@@ -6469,6 +6469,10 @@ export const completeOrderReturnController = async (req, res) => {
   let completedOrder = null;
   let shouldCreateRefund = false;
 
+  // IMPORTANT:
+  // This represents our internal Refund collection document.
+  let refundLedgerRecord = null;
+
   try {
     // ----------------------------------------------------------
     // 3. Read order
@@ -6562,7 +6566,9 @@ export const completeOrderReturnController = async (req, res) => {
 
       // --------------------------------------------------------
       // Existing pending refund
-      // Do NOT create another refund.
+      //
+      // If the order already has a Razorpay refund ID,
+      // there is nothing to create again.
       // --------------------------------------------------------
       else if (order.refundStatus === 'PENDING' && order.refundId) {
         shouldCreateRefund = false;
@@ -6570,6 +6576,13 @@ export const completeOrderReturnController = async (req, res) => {
 
       // --------------------------------------------------------
       // New refund
+      //
+      // This also covers a legacy order where:
+      //
+      // refundStatus = PENDING
+      // refundId     = ''
+      //
+      // but there is an internal Refund ledger record.
       // --------------------------------------------------------
       else if (order.paymentStatus === 'PAID' && !order.refundId) {
         shouldCreateRefund = true;
@@ -6578,8 +6591,9 @@ export const completeOrderReturnController = async (req, res) => {
       // --------------------------------------------------------
       // Previous refund failed.
       //
-      // We allow another attempt using a new receipt/idempotency
-      // value because the previous refund reached FAILED state.
+      // We allow another attempt.
+      // The existing pending/failed ledger logic below will
+      // determine whether a new record is actually required.
       // --------------------------------------------------------
       else if (order.refundStatus === 'FAILED') {
         shouldCreateRefund = true;
@@ -6617,10 +6631,24 @@ export const completeOrderReturnController = async (req, res) => {
     // 8. Start MongoDB transaction
     //
     // IMPORTANT:
+    //
     // Razorpay is NOT called inside this transaction.
     //
-    // This prevents an external Razorpay refund from being
-    // created while the MongoDB transaction can still roll back.
+    // But the local Refund ledger IS created here.
+    //
+    // This gives us:
+    //
+    // MongoDB transaction
+    //      ↓
+    // Refund ledger PENDING
+    //      ↓
+    // transaction commits
+    //      ↓
+    // Razorpay refund request
+    //
+    // Therefore, if Razorpay accepts the refund but our server
+    // loses the response, reconciliation still has a local
+    // Refund document.
     // ----------------------------------------------------------
 
     if (isNewCompletion) {
@@ -6657,6 +6685,7 @@ export const completeOrderReturnController = async (req, res) => {
         // 9. Process ONLY requested return items
         //
         // IMPORTANT:
+        //
         // Do not restore the complete order quantity.
         // Only restore the quantity actually returned.
         // ------------------------------------------------------
@@ -6938,8 +6967,11 @@ export const completeOrderReturnController = async (req, res) => {
         // 12. Calculate exact return refund amount
         //
         // IMPORTANT:
+        //
         // For partial returns this is NOT the complete order total.
+        //
         // The calculator allocates:
+        //
         // - returned item value
         // - coupon discount
         // - tax
@@ -6981,6 +7013,7 @@ export const completeOrderReturnController = async (req, res) => {
            * remaining amount must be respected.
            * --------------------------------------------------------
            */
+
           const hasActualRefundActivity =
             totalRefundedAmount > 0 ||
             currentOrder.refundStatus === 'PENDING' ||
@@ -7018,8 +7051,16 @@ export const completeOrderReturnController = async (req, res) => {
             throw new Error('Invalid refund amount in paise.');
           }
 
-          // Save the exact amount that will be requested
-          // from Razorpay.
+          // ----------------------------------------------------
+          // Reserve this amount in the order.
+          //
+          // This does NOT mean the refund succeeded.
+          //
+          // It only prevents another refund operation from using
+          // the same refundable balance while this refund is
+          // pending.
+          // ----------------------------------------------------
+
           const reservedRemainingAmount = Math.max(
             Number((remainingRefundableAmount - refundAmount).toFixed(2)),
             0,
@@ -7033,10 +7074,101 @@ export const completeOrderReturnController = async (req, res) => {
 
           currentOrder.refundFailureReason = '';
 
+          // ----------------------------------------------------
+          // IMPORTANT:
+          //
+          // CREATE INTERNAL REFUND LEDGER BEFORE RAZORPAY.
+          //
+          // This is the major fix.
+          //
+          // Previous flow:
+          //
+          // Razorpay
+          //    ↓
+          // Refund.create()
+          //
+          // New flow:
+          //
+          // Refund.create()
+          //    ↓
+          // MongoDB transaction commits
+          //    ↓
+          // Razorpay
+          //
+          // So reconciliation always has an internal record.
+          // ----------------------------------------------------
+
+          const existingPendingReturnRefund = await Refund.findOne({
+            orderId: currentOrder._id,
+            source: 'RETURN',
+            status: 'PENDING',
+          })
+            .sort({ createdAt: -1 })
+            .session(session);
+
+          if (existingPendingReturnRefund) {
+            refundLedgerRecord = existingPendingReturnRefund;
+          } else {
+            const newRefundLedger = new Refund({
+              orderId: currentOrder._id,
+
+              userId: currentOrder.userId,
+
+              // IMPORTANT:
+              // Your webhook uses `paymentId`.
+              paymentId: currentOrder.razorpayPaymentId,
+
+              amount: refundAmount,
+
+              currency: 'INR',
+
+              status: 'PENDING',
+
+              source: 'RETURN',
+
+              reason: 'Customer return completed',
+
+              returnRequestId: currentOrder.returnRequest?._id || null,
+
+              razorpayReceipt: `RETURN_${currentOrder.orderNumber}_${Date.now()}`,
+
+              requestedAt: new Date(),
+
+              failureReason: '',
+
+              metadata: {
+                orderNumber: currentOrder.orderNumber,
+                condition,
+                returnType: currentOrder.returnRequest?.returnType || 'UNKNOWN',
+              },
+            });
+
+            // --------------------------------------------------
+            // IMPORTANT:
+            //
+            // Use the local Refund _id to generate a stable
+            // idempotency key.
+            //
+            // If our HTTP response is lost after Razorpay
+            // accepts the refund, the retry uses exactly the
+            // same key instead of creating another refund.
+            // --------------------------------------------------
+
+            newRefundLedger.idempotencyKey = `RETURN_${newRefundLedger._id}`;
+
+            await newRefundLedger.save({
+              session,
+            });
+
+            refundLedgerRecord = newRefundLedger;
+          }
+
           // Do not set paymentStatus = REFUNDED here.
           //
-          // Razorpay webhook will do that after
+          // Razorpay webhook/reconciliation will do that after
           // refund.processed.
+
+          currentOrder.refundStatus = 'PENDING';
         }
 
         await currentOrder.save({
@@ -7048,26 +7180,26 @@ export const completeOrderReturnController = async (req, res) => {
     }
 
     // ----------------------------------------------------------
-    // 13. Create Razorpay refund AFTER MongoDB transaction
+    // 13. Create / reconcile Razorpay refund AFTER MongoDB
+    // transaction.
     //
-    // This avoids:
+    // IMPORTANT:
     //
-    // Razorpay refund SUCCESS
-    // +
-    // MongoDB transaction ROLLBACK
+    // The Refund ledger already exists in MongoDB with PENDING
+    // status.
     //
-    // which would leave the system inconsistent.
+    // Therefore a timeout/network error cannot make us lose
+    // the local refund record.
+    //
+    // Reconciliation can find it.
     // ----------------------------------------------------------
 
     if (order.paymentMethod === 'ONLINE' && shouldCreateRefund) {
-      // --------------------------------------------------------
-      // Calculate refund from the latest completed/order data.
-      //
-      // For a new completion use the transaction result.
-      // For a failed refund retry use the existing order.
-      // --------------------------------------------------------
-
       const refundSourceOrder = completedOrder || order;
+
+      // --------------------------------------------------------
+      // Calculate refund from the completed order.
+      // --------------------------------------------------------
 
       const refundCalculation = calculateReturnRefund(refundSourceOrder);
 
@@ -7122,33 +7254,123 @@ export const completeOrderReturnController = async (req, res) => {
         throw new Error('Invalid refund amount in paise.');
       }
 
-      let refundIdempotencyKey = `RETURN_${order._id}`;
-
-      let refundReceipt = `RETURN_${order.orderNumber}`;
-
       // --------------------------------------------------------
-      // If previous refund attempt FAILED, create a new unique
-      // refund request identifier.
+      // For a retry, recover the already-created PENDING ledger
+      // record.
       //
-      // This avoids treating a previous failed refund as the
-      // same new attempt.
+      // DO NOT create another local refund record.
       // --------------------------------------------------------
 
-      if (order.refundStatus === 'FAILED') {
-        const retryToken = new Date().getTime();
+      if (!refundLedgerRecord) {
+        refundLedgerRecord = await Refund.findOne({
+          orderId: order._id,
+          source: 'RETURN',
+          status: 'PENDING',
+        }).sort({
+          createdAt: -1,
+        });
+      }
 
-        refundIdempotencyKey = `RETURN_${order._id}_${retryToken}`;
+      // --------------------------------------------------------
+      // Legacy fallback:
+      //
+      // If an old order has no Refund ledger, create one now
+      // BEFORE calling Razorpay.
+      // --------------------------------------------------------
 
-        refundReceipt = `RETURN_${order.orderNumber}_${retryToken}`;
+      if (!refundLedgerRecord) {
+        refundLedgerRecord = await Refund.create({
+          orderId: order._id,
+
+          userId: order.userId,
+
+          paymentId: order.razorpayPaymentId,
+
+          amount: refundAmount,
+
+          currency: 'INR',
+
+          status: 'PENDING',
+
+          source: 'RETURN',
+
+          reason: 'Customer return completed',
+
+          returnRequestId: order.returnRequest?._id || null,
+
+          razorpayReceipt: `RETURN_${order.orderNumber}_${Date.now()}`,
+
+          requestedAt: new Date(),
+
+          failureReason: '',
+
+          metadata: {
+            orderNumber: order.orderNumber,
+            condition,
+            returnType: order.returnRequest?.returnType || 'UNKNOWN',
+          },
+        });
+
+        refundLedgerRecord.idempotencyKey = `RETURN_${refundLedgerRecord._id}`;
+
+        await refundLedgerRecord.save();
+      }
+
+      // --------------------------------------------------------
+      // Make sure the ledger amount matches the exact refund
+      // being sent to Razorpay.
+      // --------------------------------------------------------
+
+      const ledgerAmount = Number(refundLedgerRecord.amount);
+
+      if (!Number.isFinite(ledgerAmount) || ledgerAmount <= 0) {
+        throw new Error('Refund ledger contains an invalid amount.');
+      }
+
+      if (Number(ledgerAmount.toFixed(2)) !== Number(refundAmount.toFixed(2))) {
+        throw new Error(
+          `Refund ledger amount ₹${ledgerAmount.toFixed(
+            2,
+          )} does not match calculated refund ₹${refundAmount.toFixed(2)}.`,
+        );
+      }
+
+      // --------------------------------------------------------
+      // Use the SAME idempotency key for the entire lifecycle
+      // of this refund.
+      // --------------------------------------------------------
+
+      const refundIdempotencyKey =
+        refundLedgerRecord.idempotencyKey || `RETURN_${refundLedgerRecord._id}`;
+
+      const refundReceipt =
+        refundLedgerRecord.razorpayReceipt ||
+        `RETURN_${order.orderNumber}_${refundLedgerRecord._id}`;
+
+      // --------------------------------------------------------
+      // Persist missing values for legacy Refund documents.
+      // --------------------------------------------------------
+
+      if (
+        !refundLedgerRecord.idempotencyKey ||
+        !refundLedgerRecord.razorpayReceipt
+      ) {
+        refundLedgerRecord.idempotencyKey = refundIdempotencyKey;
+
+        refundLedgerRecord.razorpayReceipt = refundReceipt;
+
+        await refundLedgerRecord.save();
       }
 
       try {
+        // ------------------------------------------------------
+        // Call Razorpay
+        // ------------------------------------------------------
+
         refund = await createRazorpayRefund({
           paymentId: order.razorpayPaymentId,
 
-          // IMPORTANT:
-          // This is now the calculated PARTIAL/FULL
-          // return refund amount.
+          // Razorpay expects paise.
           amount: refundAmountPaise,
 
           speed: 'normal',
@@ -7159,10 +7381,20 @@ export const completeOrderReturnController = async (req, res) => {
 
           notes: {
             orderId: String(order._id),
+
             orderNumber: order.orderNumber,
+
+            // Very important:
+            // Razorpay webhook can find our local Refund
+            // using this value.
+            refundId: String(refundLedgerRecord._id),
+
             reason: 'Customer return completed',
+
             condition,
+
             returnType: order.returnRequest?.returnType || 'UNKNOWN',
+
             refundAmount: refundAmount.toFixed(2),
           },
         });
@@ -7172,74 +7404,60 @@ export const completeOrderReturnController = async (req, res) => {
         }
 
         // ------------------------------------------------------
-        // Save refund ID and amount.
-        //
-        // IMPORTANT:
-        // Do not mark payment REFUNDED here.
-        // Webhook handles final state.
+        // Validate amount returned by Razorpay.
         // ------------------------------------------------------
 
-        const refundUpdate = {
-          refundId: refund.id,
-
-          refundAmount: Number(refund.amount || refundAmountPaise) / 100,
-
-          refundStatus: 'PENDING',
-
-          refundFailureReason: '',
-        };
-
-        // --------------------------------------------------------
-        // Create Refund ledger record
-        // --------------------------------------------------------
-        // IMPORTANT:
-        // Razorpay refund has now been successfully created.
-        //
-        // Create our internal Refund ledger record so:
-        // - Refund History can display it
-        // - reconciliation can find it
-        // - webhook/reconciliation can later move it
-        //   from PENDING -> PROCESSED
-        // --------------------------------------------------------
-
-        const refundLedgerAmount =
+        const razorpayRefundAmount =
           Number(refund.amount || refundAmountPaise) / 100;
 
-        const existingRefund = await Refund.findOne({
-          razorpayRefundId: refund.id,
-        });
-
-        if (!existingRefund) {
-          await Refund.create({
-            orderId: order._id,
-            userId: order.userId,
-
-            razorpayPaymentId: order.razorpayPaymentId,
-            razorpayRefundId: refund.id,
-
-            amount: refundLedgerAmount,
-
-            currency: refund.currency || 'INR',
-
-            status: 'PENDING',
-
-            source: 'RETURN',
-
-            returnRequestId: order.returnRequest?._id || null,
-
-            reason: 'Customer return completed',
-
-            metadata: {
-              orderNumber: order.orderNumber,
-              condition,
-              returnType: order.returnRequest?.returnType || 'UNKNOWN',
-            },
-          });
+        if (
+          Number(razorpayRefundAmount.toFixed(2)) !==
+          Number(refundAmount.toFixed(2))
+        ) {
+          throw new Error(
+            `Razorpay refund amount ₹${razorpayRefundAmount.toFixed(
+              2,
+            )} does not match expected ₹${refundAmount.toFixed(2)}.`,
+          );
         }
 
         // ------------------------------------------------------
-        // Do not overwrite a webhook that already moved the
-        // refund to PROCESSED / paymentStatus REFUNDED.
+        // Update the SAME Refund ledger record.
+        //
+        // Before Razorpay:
+        //
+        // status = PENDING
+        // razorpayRefundId = empty
+        //
+        // After Razorpay:
+        //
+        // status = PENDING
+        // razorpayRefundId = rfn_xxxxx
+        //
+        // Webhook later changes:
+        //
+        // PENDING -> PROCESSED
+        // ------------------------------------------------------
+
+        refundLedgerRecord.razorpayRefundId = refund.id;
+
+        refundLedgerRecord.paymentId =
+          refund.payment_id || order.razorpayPaymentId;
+
+        refundLedgerRecord.amount = razorpayRefundAmount;
+
+        refundLedgerRecord.currency = refund.currency || 'INR';
+
+        refundLedgerRecord.status = 'PENDING';
+
+        refundLedgerRecord.failureReason = '';
+
+        await refundLedgerRecord.save();
+
+        // ------------------------------------------------------
+        // Keep legacy Order refund fields synchronized.
+        //
+        // Webhook/reconciliation decides final status.
         // ------------------------------------------------------
 
         const latestOrder = await Order.findById(orderId);
@@ -7252,7 +7470,15 @@ export const completeOrderReturnController = async (req, res) => {
             await Order.findByIdAndUpdate(
               orderId,
               {
-                $set: refundUpdate,
+                $set: {
+                  refundId: refund.id,
+
+                  refundAmount: razorpayRefundAmount,
+
+                  refundStatus: 'PENDING',
+
+                  refundFailureReason: '',
+                },
               },
               {
                 new: true,
@@ -7264,26 +7490,62 @@ export const completeOrderReturnController = async (req, res) => {
         console.error('RETURN RAZORPAY REFUND ERROR:', refundError);
 
         // ------------------------------------------------------
-        // Return is already completed and inventory transaction
-        // has already committed.
+        // IMPORTANT:
         //
-        // Mark refund as FAILED so it can be retried/reconciled.
+        // DO NOT automatically mark the refund FAILED merely
+        // because the API request threw an error.
+        //
+        // Example:
+        //
+        // Our server:
+        //    POST Razorpay
+        //
+        // Razorpay:
+        //    creates refund successfully
+        //
+        // Network:
+        //    connection timeout
+        //
+        // Our server:
+        //    receives error
+        //
+        // If we mark FAILED here and create another refund,
+        // the customer could receive TWO refunds.
+        //
+        // Therefore keep the local Refund PENDING.
+        //
+        // Reconciliation can check Razorpay using the same
+        // idempotency key / refund ID / payment ID.
         // ------------------------------------------------------
+
+        await Refund.findByIdAndUpdate(refundLedgerRecord._id, {
+          $set: {
+            status: 'PENDING',
+
+            failureReason: refundError?.message || '',
+          },
+        });
 
         await Order.findByIdAndUpdate(orderId, {
           $set: {
-            refundStatus: 'FAILED',
+            refundStatus: 'PENDING',
+
             refundFailureReason:
-              refundError?.message || 'Razorpay refund creation failed.',
+              refundError?.message ||
+              'Razorpay refund request requires reconciliation.',
           },
         });
 
         return res.status(502).json({
           success: false,
+
           message:
-            'Return was completed, but the Razorpay refund could not be initiated. Refund status is marked FAILED for retry.',
+            'Return was completed, but the Razorpay refund response could not be confirmed. The refund remains PENDING and can be reconciled safely.',
+
           data: {
             order: await Order.findById(orderId),
+
+            refund: await Refund.findById(refundLedgerRecord._id),
           },
         });
       }
@@ -7311,10 +7573,15 @@ export const completeOrderReturnController = async (req, res) => {
     if (refund) {
       refundResponse = {
         id: refund.id,
+
         paymentId: refund.payment_id,
+
         amount: refund.amount,
+
         currency: refund.currency,
+
         status: refund.status,
+
         speed: refund.speed_requested || 'normal',
       };
     }
@@ -7336,6 +7603,7 @@ export const completeOrderReturnController = async (req, res) => {
 
       data: {
         order: finalOrder,
+
         refund: refundResponse,
       },
     });
@@ -7345,6 +7613,7 @@ export const completeOrderReturnController = async (req, res) => {
     if (error.statusCode === 409) {
       return res.status(409).json({
         success: false,
+
         message:
           'The refund is currently being processed by Razorpay. Please try again shortly.',
       });
@@ -7352,6 +7621,7 @@ export const completeOrderReturnController = async (req, res) => {
 
     return res.status(500).json({
       success: false,
+
       message: error?.message || 'Failed to complete return request.',
     });
   } finally {

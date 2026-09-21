@@ -705,6 +705,8 @@ const OrdersPage = () => {
 
                   <th className="px-4 py-4">Amount</th>
 
+                  <th className="px-4 py-4">Refund</th>
+
                   <th className="px-4 py-4">Status</th>
 
                   <th className="px-4 py-4">Date</th>
@@ -723,7 +725,7 @@ const OrdersPage = () => {
                 ) : filteredOrders.length === 0 ? (
                   <tr>
                     <td
-                      colSpan="8"
+                      colSpan="9"
                       className="
                       p-10
                       text-center
@@ -827,7 +829,85 @@ const OrdersPage = () => {
 
                       <td className="px-4 py-4 font-semibold">
                         ₹
-                        {Number(order.totalAmount || 0).toLocaleString('en-IN')}
+                        {Number(order.totalAmount || 0).toLocaleString(
+                          'en-IN',
+                          {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          },
+                        )}
+                      </td>
+                      <td className="px-4 py-4">
+                        {order.paymentMethod === 'ONLINE' &&
+                        order.paymentProvider === 'RAZORPAY' ? (
+                          <div className="min-w-37 space-y-1">
+                            {/* REFUND STATUS */}
+
+                            <span
+                              className={`
+                              inline-flex
+                              rounded-full
+                              px-2.5
+                              py-1
+                              text-xs
+                              font-bold
+                              ${
+                                order.refundStatus === 'PROCESSED'
+                                  ? 'bg-green-100 text-green-700'
+                                  : order.refundStatus === 'PARTIAL'
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : order.refundStatus === 'PENDING'
+                                      ? 'bg-yellow-100 text-yellow-700'
+                                      : order.refundStatus === 'FAILED'
+                                        ? 'bg-red-100 text-red-700'
+                                        : 'bg-slate-100 text-slate-600'
+                              }
+                            `}
+                            >
+                              {order.refundStatus === 'PROCESSED'
+                                ? 'FULLY REFUNDED'
+                                : order.refundStatus === 'PARTIAL'
+                                  ? 'PARTIAL'
+                                  : order.refundStatus === 'PENDING'
+                                    ? 'PENDING'
+                                    : order.refundStatus === 'FAILED'
+                                      ? 'FAILED'
+                                      : 'NONE'}
+                            </span>
+
+                            {/* REFUNDED */}
+
+                            {Number(order.totalRefundedAmount || 0) > 0 && (
+                              <div className="text-xs text-slate-600">
+                                Refunded: ₹
+                                {Number(
+                                  order.totalRefundedAmount || 0,
+                                ).toLocaleString('en-IN', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </div>
+                            )}
+
+                            {/* REMAINING */}
+
+                            {order.refundStatus !== 'PROCESSED' &&
+                              Number(order.remainingRefundableAmount || 0) >
+                                0 && (
+                                <div className="text-xs text-slate-500">
+                                  Remaining: ₹
+                                  {Number(
+                                    order.remainingRefundableAmount || 0,
+                                  ).toLocaleString('en-IN', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
                       </td>
 
                       {/* STATUS */}
