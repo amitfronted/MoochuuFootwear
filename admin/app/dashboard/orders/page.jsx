@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import OrderDetailsModal from '@/app/components/OrderDetailsModal';
 import ShippingDetailsModal from '@/app/components/ShippingDetailsModal';
 import RefundManagementModal from '@/app/components/RefundManagementModal';
+import { useAuth } from '../../context/AuthContext';
 
 import {
   fetchAllOrders,
@@ -12,7 +13,6 @@ import {
   updateOrderShipping,
   markCodPaymentAsPaid,
   fetchRefundSummary,
-  createOrderRefund,
   reconcileOrderRefund,
 } from '../../lib/api';
 
@@ -50,6 +50,9 @@ const formatDate = (date) => {
 };
 
 const OrdersPage = () => {
+  const { user, authLoading } = useAuth();
+
+  const canManageRefund = user?.role === 'SUPER_ADMIN';
   const [orders, setOrders] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -76,14 +79,7 @@ const OrdersPage = () => {
 
   const [refundLoading, setRefundLoading] = useState(false);
 
-  const [refundSubmitting, setRefundSubmitting] = useState(false);
-
   const [refundReconciling, setRefundReconciling] = useState(false);
-
-  // Keep the same idempotency key for a refund attempt.
-  // This prevents generating a new refund request key if the
-  // request needs to be retried after a timeout/network issue.
-  const refundIdempotencyKeys = useRef({});
 
   // -----------------------------------------
   // LOAD ORDERS
@@ -166,131 +162,6 @@ const OrdersPage = () => {
   };
 
   // -----------------------------------------
-  // CREATE REFUND
-  // -----------------------------------------
-
-  const handleCreateRefund = async (orderId, { amount, reason = '' }) => {
-    if (!orderId) return;
-
-    setRefundSubmitting(true);
-
-    let idempotencyKey = refundIdempotencyKeys.current[orderId];
-
-    if (!idempotencyKey) {
-      const randomPart =
-        typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-      idempotencyKey = `refund-${orderId}-${randomPart}`;
-
-      refundIdempotencyKeys.current[orderId] = idempotencyKey;
-    }
-
-    // --------------------------------------------------
-    // 1. CREATE REFUND
-    // --------------------------------------------------
-    try {
-      const response = await createOrderRefund(
-        orderId,
-        {
-          amount,
-          reason,
-        },
-        idempotencyKey,
-      );
-
-      if (!response?.success) {
-        toast.error(response?.message || 'Failed to create refund');
-
-        return;
-      }
-
-      // -----------------------------------------------
-      // Refund request succeeded.
-      // This idempotency key must NEVER be reused
-      // for a future refund.
-      // -----------------------------------------------
-      delete refundIdempotencyKeys.current[orderId];
-
-      toast.success(
-        response.message || 'Refund request submitted successfully',
-      );
-    } catch (error) {
-      console.error('CREATE REFUND ERROR:', error.response?.data || error);
-
-      const status = error.response?.status;
-
-      const message =
-        error.response?.data?.message ||
-        error.message ||
-        'Failed to create refund';
-
-      toast.error(message);
-
-      /*
-       * Network/unknown errors:
-       * keep the same idempotency key so the user can retry
-       * without accidentally creating another refund.
-       *
-       * Definite server-side failure:
-       * the backend may have created a FAILED refund record.
-       * A new attempt needs a new idempotency key.
-       */
-      if (status && status !== 409) {
-        delete refundIdempotencyKeys.current[orderId];
-      }
-
-      /*
-       * 409 is intentionally kept for now.
-       *
-       * Your backend uses 409 for an existing PENDING/FAILED
-       * idempotency record. We should inspect the exact response
-       * body before deciding whether a 409 means "reuse key"
-       * or "generate a new key".
-       */
-
-      throw error;
-    } finally {
-      setRefundSubmitting(false);
-    }
-
-    // --------------------------------------------------
-    // 2. REFRESH ADMIN UI
-    // --------------------------------------------------
-    //
-    // IMPORTANT:
-    // If this fails, the refund itself has already succeeded.
-    // Therefore DO NOT throw this error back to the modal.
-    //
-    try {
-      await loadOrders();
-
-      const summaryResponse = await fetchRefundSummary(orderId);
-
-      if (summaryResponse?.success) {
-        setRefundSummary(summaryResponse.data);
-      } else {
-        setRefundSummary(null);
-
-        toast.error(
-          summaryResponse?.message ||
-            'Refund created, but refund summary could not be refreshed.',
-        );
-      }
-    } catch (refreshError) {
-      console.error(
-        'REFUND UI REFRESH ERROR:',
-        refreshError.response?.data || refreshError,
-      );
-
-      toast.error(
-        'Refund was created, but the order information could not be refreshed. Please reopen the order.',
-      );
-    }
-  };
-
-  // -----------------------------------------
   // RECONCILE REFUND
   // -----------------------------------------
 
@@ -328,6 +199,17 @@ const OrdersPage = () => {
     } finally {
       setRefundReconciling(false);
     }
+  };
+
+  const hasRefund = (order) => {
+    if (!order || !canManageRefund) return false;
+
+    const status =
+      refundSummary?.orderId === order._id
+        ? refundSummary.refundStatus
+        : order.refundStatus;
+
+    return ['PENDING', 'FAILED'].includes(status);
   };
 
   useEffect(() => {
@@ -981,94 +863,52 @@ const OrdersPage = () => {
                       <td className="px-4 py-4">
                         {order.paymentMethod === 'ONLINE' &&
                         order.paymentProvider === 'RAZORPAY' ? (
-                          <div className="min-w-37 space-y-1">
-                            {/* REFUND STATUS */}
-
+                          <div className="flex flex-col gap-2">
                             <span
-                              className={`
-                              inline-flex
-                              rounded-full
-                              px-2.5
-                              py-1
-                              text-xs
-                              font-bold
-                              ${
+                              className={`inline-flex w-fit px-3 py-1 rounded-full text-xs font-semibold ${
                                 order.refundStatus === 'PROCESSED'
                                   ? 'bg-green-100 text-green-700'
                                   : order.refundStatus === 'PARTIAL'
                                     ? 'bg-blue-100 text-blue-700'
                                     : order.refundStatus === 'PENDING'
                                       ? 'bg-yellow-100 text-yellow-700'
-                                      : order.refundStatus === 'FAILED'
-                                        ? 'bg-red-100 text-red-700'
-                                        : 'bg-slate-100 text-slate-600'
-                              }
-                            `}
+                                      : 'bg-gray-100 text-gray-600'
+                              }`}
                             >
-                              {order.refundStatus === 'PROCESSED'
-                                ? 'FULLY REFUNDED'
-                                : order.refundStatus === 'PARTIAL'
-                                  ? 'PARTIAL'
-                                  : order.refundStatus === 'PENDING'
-                                    ? 'PENDING'
-                                    : order.refundStatus === 'FAILED'
-                                      ? 'FAILED'
-                                      : 'NONE'}
+                              {order.refundStatus || 'NONE'}
                             </span>
 
-                            {/* REFUNDED */}
-
-                            {Number(order.totalRefundedAmount || 0) > 0 && (
-                              <div className="text-xs text-slate-600">
+                            {Number(order.refundAmount || 0) > 0 && (
+                              <div className="text-sm text-gray-600">
                                 Refunded: ₹
-                                {Number(
-                                  order.totalRefundedAmount || 0,
-                                ).toLocaleString('en-IN', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
+                                {Number(order.refundAmount).toFixed(2)}
                               </div>
                             )}
 
-                            {/* REMAINING */}
-
-                            {order.refundStatus !== 'PROCESSED' &&
-                              Number(order.remainingRefundableAmount || 0) >
-                                0 && (
-                                <div className="text-xs text-slate-500">
+                            {Number(order.refundAmount || 0) > 0 &&
+                              Number(order.totalAmount || 0) >
+                                Number(order.refundAmount || 0) && (
+                                <div className="text-sm text-gray-600">
                                   Remaining: ₹
-                                  {Number(
-                                    order.remainingRefundableAmount || 0,
-                                  ).toLocaleString('en-IN', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
+                                  {(
+                                    Number(order.totalAmount || 0) -
+                                    Number(order.refundAmount || 0)
+                                  ).toFixed(2)}
                                 </div>
                               )}
-                            {order.refundStatus &&
-                              order.refundStatus !== 'NONE' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenRefundModal(order)}
-                                  className="
-                                      mt-2
-                                      rounded-lg
-                                      border
-                                      border-slate-700
-                                      px-2.5
-                                      py-1.5
-                                      text-xs
-                                      font-semibold
-                                      text-slate-700
-                                      hover:bg-slate-100
-                                    "
-                                >
-                                  Manage Refund
-                                </button>
-                              )}
+
+                            {hasRefund(order) && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenRefundModal(order)}
+                                className="w-fit px-3 py-2 rounded-lg border border-gray-400 bg-white text-gray-800 hover:bg-gray-50"
+                              >
+                                Manage Refund
+                              </button>
+                            )}
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400">—</span>
+                          <span className="text-gray-400">—</span>
                         )}
                       </td>
 

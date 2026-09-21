@@ -30,6 +30,11 @@ const RefundManagementModal = ({
   onClose,
   onReconcile,
 }) => {
+  const hasExistingRefund =
+    Boolean(refundSummary?.refundId) ||
+    Boolean(refundSummary?.razorpayRefundId) ||
+    Boolean(order?.refundId);
+
   if (!order) return null;
 
   const totalAmount = Number(
@@ -52,13 +57,11 @@ const RefundManagementModal = ({
     : [];
 
   const canReconcile =
-    !refundLoading &&
-    !refundReconciling &&
-    (refundStatus === 'PENDING' || pendingAmount > 0);
+    hasExistingRefund && !refundReconciling && !refundLoading;
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-80 flex items-center justify-center bg-black/50 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !refundReconciling) {
           onClose();
@@ -170,42 +173,45 @@ const RefundManagementModal = ({
           </div>
 
           {/* RECONCILE */}
-          <div className="mt-5 rounded-xl border border-slate-200 p-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="font-semibold text-slate-900">
-                  Reconcile Refund
-                </h3>
+          {['PENDING', 'FAILED'].includes(refundStatus) && (
+            <section className="rounded-xl border border-blue-100 bg-white p-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">
+                    Reconcile Refund
+                  </h3>
 
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Check Razorpay and synchronize the existing refund with the
-                  local Refund and Order records.
-                </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">
+                    Check Razorpay and synchronize the existing refund with the
+                    local Refund and Order records.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onReconcile?.(order._id)}
+                  disabled={refundReconciling}
+                  className="
+          shrink-0
+          rounded-lg
+          border
+          border-slate-300
+          bg-white
+          px-5
+          py-3
+          text-sm
+          font-medium
+          text-slate-700
+          hover:bg-slate-50
+          disabled:cursor-not-allowed
+          disabled:opacity-50
+        "
+                >
+                  {refundReconciling ? 'Reconciling...' : 'Verify & Reconcile'}
+                </button>
               </div>
-
-              <button
-                type="button"
-                disabled={!canReconcile}
-                onClick={() => onReconcile?.(order._id)}
-                className="shrink-0 rounded-lg border border-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {refundReconciling ? 'Reconciling...' : 'Reconcile Refund'}
-              </button>
-            </div>
-
-            {refundStatus === 'PROCESSED' && (
-              <div className="mt-3 rounded-lg bg-green-50 p-3 text-xs font-medium text-green-700">
-                This refund is already processed. No reconciliation is currently
-                required.
-              </div>
-            )}
-
-            {refundStatus === 'NONE' && (
-              <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-                No refund ledger is currently associated with this order.
-              </div>
-            )}
-          </div>
+            </section>
+          )}
 
           {/* HISTORY */}
           <div className="mt-6">

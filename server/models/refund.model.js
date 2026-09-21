@@ -31,7 +31,7 @@ const refundSchema = new mongoose.Schema(
 
     razorpayRefundId: {
       type: String,
-      default: '',
+      default: null,
       trim: true,
     },
 
