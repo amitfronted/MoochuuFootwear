@@ -30,20 +30,20 @@ const Pagination = ({
     return pages;
   };
   return (
-    <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6 mt-8 rounded-lg shadow-sm">
+    <div className="flex items-center justify-between px-4 py-3 sm:px-6 mt-8">
       {/* Mobile view controls */}
       <div className="flex flex-1 justify-between sm:hidden">
         <button
           disabled={currentPage === 1}
           onClick={() => onPageChange(currentPage - 1)}
-          className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="relative inline-flex items-center rounded-md border border-black bg-white px-4 py-2 text-sm font-medium text-black hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Previous
         </button>
         <button
           disabled={currentPage === totalPages}
           onClick={() => onPageChange(currentPage + 1)}
-          className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="relative ml-3 inline-flex items-center rounded-md border border-black bg-white px-4 py-2 text-sm font-medium text-black hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Next
         </button>
@@ -52,7 +52,7 @@ const Pagination = ({
       {/* Desktop view controls */}
       <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-black">
             Showing <span className="font-medium">{startItem}</span> to{' '}
             <span className="font-medium">{endItem}</span> of{' '}
             <span className="font-medium">{totalResults}</span> results
@@ -89,7 +89,7 @@ const Pagination = ({
                   aria-current={currentPage === pageItem ? 'page' : undefined}
                   className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold border ${
                     currentPage === pageItem
-                      ? 'z-10 bg-indigo-600 text-white border-indigo-600 focus-visible:outline-2 focus-visible:outline-indigo-600'
+                      ? 'z-10 bg-black text-white border-black focus-visible:outline-2 focus-visible:outline-black'
                       : 'text-gray-900 border-gray-300 hover:bg-gray-50'
                   }`}
                 >
@@ -102,7 +102,7 @@ const Pagination = ({
             <button
               disabled={currentPage === totalPages}
               onClick={() => onPageChange(currentPage + 1)}
-              className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 border border-gray-300 hover:bg-gray-50 focus:z-20 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="relative inline-flex items-center rounded-r-md px-2 py-2 text-black border border-gray-300 hover:bg-gray-50 focus:z-20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="sr-only">Next</span>
               <BsChevronRight aria-hidden="true" className="size-5" />
