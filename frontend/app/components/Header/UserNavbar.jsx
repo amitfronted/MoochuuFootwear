@@ -32,7 +32,7 @@ const UserNavbar = ({ toggleUserdrawer, userDrawerOpen }) => {
         <img
           src={user?.avatar || '/man.png'}
           alt={user.name || 'user'}
-          className="w-12 h-12 rounded-full border border-yellow object-cover"
+          className="w-9 h-9 md:w-12 md:h-12 rounded-full border border-yellow object-cover"
           loading="eager"
         />
 
@@ -46,7 +46,7 @@ const UserNavbar = ({ toggleUserdrawer, userDrawerOpen }) => {
 
       {/* Dropdown */}
       <div
-        className={`absolute top-full mt-3 max-w-60 min-w-60 bg-white border rounded-md border-gray-300 right-0 shadow-lg transition-all duration-300 ${
+        className={`absolute top-full mt-3 w-52 sm:min-w-60 bg-white border rounded-md border-gray-300 right-0 sm:-right-4 max-w-[calc(100vw-2rem)] shadow-lg transition-all duration-300 ${
           userDrawerOpen
             ? 'opacity-100 visible translate-y-0 z-50'
             : 'opacity-0 invisible -translate-y-2 z-0'

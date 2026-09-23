@@ -14,12 +14,12 @@
   --breakpoint-3xl: 2000px;
 }
 
-@media (prefers-color-scheme: dark) {
+/* @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
   }
-}
+} */
 
 @media (min-width: 96rem) {
   .container {
@@ -32,6 +32,7 @@ body {
   color: var(--foreground);
   font-family: var(--font-host-grotesk);
   font-weight: 400;
+  overflow-x: hidden;
 }
 
 .swiper-pagination-fraction,
@@ -68,23 +69,23 @@ body {
   opacity: 1 !important;
 }
 
--webkit-scrollbar {
+::-webkit-scrollbar {
   width: 10px; /* Width of vertical scrollbar */
   height: 10px; /* Height of horizontal scrollbar */
 }
 
--webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: #f1f1f1; /* Background of the scrollbar area */
   border-radius: 5px;
 }
 
--webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: #888888; /* Draggable scroll handle */
   border-radius: 5px;
   border: 2px solid #f1f1f1; /* Creates a padding effect around thumb */
 }
 
--webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: #555555; /* Handle color on mouse hover */
 }
 
@@ -227,7 +228,7 @@ body {
   z-index: 1;
 }
 
-keyframes slideDown {
+@keyframes slideDown {
   from {
     transform: translateY(-100%);
     opacity: 0;

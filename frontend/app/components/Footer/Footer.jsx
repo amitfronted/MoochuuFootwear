@@ -17,8 +17,8 @@ const Footer = () => {
             <CiFaceSmile className="pt-2 w-12 h-12" />
           </div>
           <div className="lg:w-1/2 md:w-3/4 w-full">
-            <ul className="w-full flex justify-center items-center gap-2 md:text-lg text-sm font-semibold uppercase">
-              <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 md:px-8 px-2'>
+            <ul className="w-full flex justify-center items-center flex-wrap gap-4 sm:gap-2 md:text-lg text-sm font-semibold uppercase">
+              <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 after:hidden sm:after:block md:px-8 px-2'>
                 <Link
                   href="/shop"
                   className="relative 
@@ -38,7 +38,7 @@ const Footer = () => {
                   Shop
                 </Link>
               </li>
-              <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 md:px-8 px-2'>
+              <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 after:hidden sm:after:block md:px-8 px-2'>
                 <Link
                   href={'/'}
                   className="relative 
@@ -58,7 +58,7 @@ const Footer = () => {
                   Customize
                 </Link>
               </li>
-              <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 md:px-8 px-2'>
+              <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 after:hidden sm:after:block md:px-8 px-2'>
                 <Link
                   href="/about"
                   className="relative 

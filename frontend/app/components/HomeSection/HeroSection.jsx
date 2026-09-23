@@ -6,12 +6,12 @@ import { MdArrowOutward } from 'react-icons/md';
 const HeroSection = () => {
   return (
     <section
-      className="relative bg-no-repeat bg-cover md:bg-center bg-position-[70%_50%] py-8"
+      className="relative bg-no-repeat bg-cover md:bg-center bg-position-[70%_50%] py-8 min-h-[500px] md:min-h-0"
       style={{ backgroundImage: "url('/banner/banner1.png')" }}
     >
       <div className="relative">
         <div className="container mx-auto lg:px-12 md:px-4 px-4 w-full">
-          <h2 className="lg:text-9xl md:text-6xl text-6xl font-extrabold uppercase w-1/4 lg:mt-42 md:mt-28 lg:leading-28 md:leading-14 leading-14 tracking-tight">
+          <h2 className="lg:text-9xl md:text-6xl text-6xl font-extrabold uppercase w-full md:w-1/2 lg:w-1/4 lg:mt-40 mt-28 lg:leading-[100px] md:leading-[60px] leading-[60px] tracking-tight">
             M00ds Change. you don't.
           </h2>
           <p className="flex flex-col font-semibold leading-6 pt-4 pb-5 text-lg">

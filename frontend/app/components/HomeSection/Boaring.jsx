@@ -6,13 +6,13 @@ export const Boaring = () => {
       className="relative py-12 bg-no-repeat bg-cover md:bg-center bg-position-[80%_50%]"
       style={{ backgroundImage: "url('/boaring.png')" }}
     >
-      <p className="uppercase rotate-270 absolute md:left-0 -left-10 md:bottom-22 bottom-24 font-semibold">
+      <p className="uppercase rotate-270 absolute md:left-0 -left-10 md:bottom-22 bottom-24 font-semibold hidden md:block">
         Mix your vibe
       </p>
       <div className="relative">
         <div className="container mx-auto md:px-32 px-12">
           <div className="w-full md:pt-40 pt-0">
-            <h2 className="md:text-8xl text-4xl font-extrabold uppercase md:leading-20 leading-11 tracking-tight md:scale-y-150 md:min-h-75 md:bg-transparent md:p-0 p-2 bg-white/30">
+            <h2 className="md:text-8xl text-3xl font-extrabold uppercase md:leading-[80px] leading-9 tracking-tight md:scale-y-150 md:min-h-[300px] md:bg-transparent md:p-0 p-2 bg-white/30">
               Build for <br />
               people who <br />
               hate boaring.

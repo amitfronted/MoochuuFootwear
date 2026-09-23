@@ -16,7 +16,7 @@ const CartContent = ({ items, loading }) => {
   return (
     <div
       id="cartDrawerBox"
-      className="flex-1 flex-col px-6 items-center justify-center overflow-y-scroll md:min-h-[70%] h-86"
+      className="flex-1 flex-col px-6 items-center justify-center overflow-y-auto min-h-0 max-h-[60vh] md:max-h-[70vh]"
     >
       {items.map((item) => (
         <CartItem key={item._id} item={item} />

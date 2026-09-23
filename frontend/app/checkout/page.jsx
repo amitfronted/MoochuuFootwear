@@ -384,7 +384,7 @@ const Checkout = () => {
 
   return (
     <ProtectedRoute>
-      <section className="mt-22 min-h-screen bg-gray-100 px-4 py-12 md:px-8">
+      <section className="min-h-screen bg-gray-100 px-4 py-12 md:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="mb-8">
             <h1 className="text-3xl font-semibold text-gray-900">Checkout</h1>
@@ -442,7 +442,7 @@ const Checkout = () => {
                       addresses.map((address) => (
                         <div
                           key={address._id}
-                          className={`flex items-start justify-between rounded-md border p-4 transition ${
+                          className={`flex items-start justify-between rounded-md border p-4 transition flex-col sm:flex-row gap-4 sm:gap-0 ${
                             selectedAddress === address._id
                               ? 'border-amber-600 bg-amber-50'
                               : 'border-gray-200 bg-white'
@@ -450,7 +450,7 @@ const Checkout = () => {
                         >
                           <label
                             htmlFor={`checkout-address-${address._id}`}
-                            className="flex cursor-pointer gap-3"
+                            className="flex cursor-pointer gap-3 items-start w-full"
                           >
                             <input
                               id={`checkout-address-${address._id}`}

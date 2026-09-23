@@ -71,7 +71,7 @@ const CartPage = () => {
     <main className="mx-auto max-w-7xl px-4 py-10">
       {/* Header */}
 
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-0">
         <div>
           <h1 className="text-3xl font-bold">Shopping Cart</h1>
 
@@ -83,13 +83,13 @@ const CartPage = () => {
         <button
           type="button"
           onClick={clearCart}
-          className="font-medium bg-black px-6 py-3 text-white rounded-lg"
+          className="font-medium bg-black px-6 py-3 text-white rounded-lg self-start sm:self-auto"
         >
           Clear Cart
         </button>
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
+      <div className="grid gap-8 md:grid-cols-[1fr_300px] lg:grid-cols-[1fr_380px]">
         {/* Cart Items */}
 
         <section className="rounded-xl border bg-white px-4">

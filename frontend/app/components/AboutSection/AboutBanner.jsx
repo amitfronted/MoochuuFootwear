@@ -19,7 +19,7 @@ const AboutBanner = () => {
           alt="banner text"
           width={1920}
           height={982}
-          className="absolute top-3/12 md:top-0 left-0 z-10"
+          className="absolute top-1/4 md:top-0 left-0 z-10 w-full h-auto px-4 sm:px-0"
         />
       </div>
     </section>

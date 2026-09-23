@@ -13,8 +13,8 @@ const VideoSection = () => {
           loop
         ></video>
       </div>
-      <div className="video-content space-y-2 z-10">
-        <h1 className="font-bold text-4xl md:text-6xl lg:text-9xl text-white uppercase">
+      <div className="video-content space-y-2 z-10 px-4">
+        <h1 className="font-bold text-2xl sm:text-4xl md:text-6xl lg:text-9xl text-white uppercase">
           First customized Footwear
         </h1>
         <h3 className="font-light text-lg md:text-3xl lg:text-5xl text-white">

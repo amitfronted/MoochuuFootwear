@@ -43,7 +43,7 @@ const Slider = () => {
             loading="eager"
           />
           <div className="absolute md:top-52 top-6 left-0 md:px-12 px-4 w-2/4 text-white">
-            <h2 className="md:text-[200px] text-5xl font-extrabold md:leading-45 leading-10 md:scale-y-150 md:min-h-110 uppercase">
+            <h2 className="md:text-[200px] text-2xl sm:text-4xl font-extrabold md:leading-45 leading-10 md:scale-y-150 md:min-h-110 uppercase">
               Sun Mode
             </h2>
             <p className="uppercase text-sm md:text-[16px]">Bright Day.</p>
@@ -63,10 +63,10 @@ const Slider = () => {
             loading="eager"
           />
           <div className="absolute md:top-52 top-6 left-0 md:px-12 px-4 w-2/4 text-white">
-            <h2 className="md:text-[200px] text-5xl font-extrabold md:scale-y-150 md:min-h-75 uppercase">
+            <h2 className="md:text-[200px] text-2xl sm:text-4xl font-extrabold md:scale-y-150 md:min-h-75 uppercase">
               Main
             </h2>
-            <h2 className="md:text-[150px] text-4xl font-extrabold md:leading-36 md:scale-y-150 md:min-h-45 uppercase">
+            <h2 className="md:text-[150px] text-2xl sm:text-4xl font-extrabold md:leading-36 md:scale-y-150 md:min-h-45 uppercase">
               Character
             </h2>
             <p className="uppercase text-sm md:text-[16px]">Your Story.</p>
@@ -86,7 +86,7 @@ const Slider = () => {
             loading="eager"
           />
           <div className="absolute md:top-72 top-6 left-0 md:px-12 px-4 w-2/4 text-white">
-            <h2 className="md:text-[120px] text-5xl font-extrabold md:leading-28 leading-10 md:scale-y-150 md:min-h-65 uppercase text-yellow">
+            <h2 className="md:text-[120px] text-2xl sm:text-4xl font-extrabold md:leading-28 leading-10 md:scale-y-150 md:min-h-65 uppercase text-yellow">
               Outside Energy
             </h2>
             <p className="uppercase text-sm md:text-[16px]">Fresh Air.</p>
@@ -106,7 +106,7 @@ const Slider = () => {
             loading="eager"
           />
           <div className="absolute md:top-52 top-6 left-0 md:px-12 px-4 w-2/4 text-white">
-            <h2 className="md:text-[200px] text-5xl font-extrabold md:leading-45 leading-10 md:scale-y-150 md:min-h-110 uppercase text-[#d22626]">
+            <h2 className="md:text-[200px] text-2xl sm:text-4xl font-extrabold md:leading-45 leading-10 md:scale-y-150 md:min-h-110 uppercase text-[#d22626]">
               After hours
             </h2>
             <p className="uppercase text-sm md:text-[16px] text-black">
@@ -132,7 +132,7 @@ const Slider = () => {
             loading="eager"
           />
           <div className="absolute md:top-52 top-6 left-0 md:px-12 px-4 w-2/4 text-white">
-            <h2 className="md:text-[200px] text-5xl font-extrabold md:leading-45 leading-10 md:scale-y-150 md:min-h-110 uppercase text-[#f5b3bf]">
+            <h2 className="md:text-[200px] text-2xl sm:text-4xl font-extrabold md:leading-45 leading-10 md:scale-y-150 md:min-h-110 uppercase text-[#f5b3bf]">
               Soft Chaos
             </h2>
             <p className="uppercase text-sm md:text-[16px]">Moods Change.</p>
@@ -143,19 +143,19 @@ const Slider = () => {
       </Swiper>
 
       {/* Custom Buttons */}
-      <div className="absolute md:w-50 w-16 md:bottom-6 bottom-3 md:right-8 right-0 z-1 flex md:gap-8 gap-2">
+      <div className="absolute md:w-50 w-24 md:bottom-6 bottom-3 md:right-8 right-2 z-1 flex md:gap-8 gap-2">
         <button
-          className="bg-yellow text-black md:w-12 md:h-12 w-4 h-4 flex items-center justify-center rounded-full cursor-pointer"
+          className="bg-yellow text-black md:w-12 md:h-12 w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
           onClick={() => swiperRef.current?.slidePrev()}
         >
-          <IoIosArrowRoundBack className="md:w-8 md:h-8 w-4 h-4" />
+          <IoIosArrowRoundBack className="md:w-8 md:h-8 w-6 h-6" />
         </button>
 
         <button
-          className="bg-yellow text-black md:w-12 md:h-12 w-4 h-4 flex items-center justify-center rounded-full cursor-pointer"
+          className="bg-yellow text-black md:w-12 md:h-12 w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
           onClick={() => swiperRef.current?.slideNext()}
         >
-          <IoIosArrowRoundForward className="md:w-8 md:h-8 w-4 h-4" />
+          <IoIosArrowRoundForward className="md:w-8 md:h-8 w-6 h-6" />
         </button>
       </div>
     </section>

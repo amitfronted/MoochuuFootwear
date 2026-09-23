@@ -44,10 +44,10 @@ const LoginContent = () => {
   }
 
   return (
-    <section className="py-10 w-full h-screen bg-gray-100 flex items-center justify-center">
+    <section className="py-20 w-full min-h-[calc(100vh-160px)] bg-gray-100 flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-[url('/patern.webp')] bg-cover bg-center opacity-5"></div>
-      <div className="container">
-        <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-md md:max-w-lg md:min-w-lg md:w-lg w-full m-auto relative z-10">
+      <div className="container w-full flex justify-center">
+        <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-md md:max-w-lg w-full relative z-10">
           <h2 className="text-center text-xl font-medium text-gray-700 mb-6">
             Login to your account
           </h2>

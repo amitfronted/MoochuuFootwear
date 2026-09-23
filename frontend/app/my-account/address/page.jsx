@@ -12,7 +12,7 @@ const AddressPage = () => {
     getAddresses();
   }, [getAddresses]);
   return (
-    <div className="w-full rounded-md bg-white shadow-md md:w-3/4">
+    <div className="w-full rounded-md bg-white shadow-md">
       <div className="flex flex-col gap-4 border-b border-gray-200 p-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h4 className="text-lg font-medium text-gray-700">Address</h4>

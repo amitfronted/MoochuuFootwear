@@ -807,7 +807,7 @@ const SingleProduct = ({ product }) => {
           </div>
         </div>
         <div className="lg:col-span-4">
-          <div className="hidden lg:flex lg:flex-col md:flex md:flex-col">
+          <div className="flex flex-row overflow-x-auto gap-2 lg:flex-col md:flex-col">
             {product.galleryImages?.map((image, index) => (
               <div
                 key={image || index}
@@ -832,7 +832,7 @@ const SingleProduct = ({ product }) => {
 
         <div className="lg:sticky lg:top-6 lg:col-span-4 lg:max-h-[calc(100vh-3rem)] lg:self-start">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl hidden lg:block md:block">
+            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
               {product.name}
             </h1>
 
@@ -840,7 +840,7 @@ const SingleProduct = ({ product }) => {
               Product Code: {product.productCode}
             </p> */}
 
-            <p className="mt-3 text-2xl font-semibold text-gray-900 md:block lg:block hidden">
+            <p className="mt-3 text-2xl font-semibold text-gray-900">
               ₹{product.basePrice}
             </p>
 
@@ -913,7 +913,7 @@ const SingleProduct = ({ product }) => {
                     Select Sole
                   </h3>
 
-                  <div className="flex md:flex-wrap flex-row overflow-y-scroll md:overflow-hidden gap-3">
+                  <div className="flex md:flex-wrap flex-row overflow-x-auto overflow-y-hidden md:overflow-hidden gap-3 pb-2">
                     {baseColors.map((sole) => {
                       const available = selectedSize
                         ? isAvailableBySize(sole, selectedSize)
@@ -931,7 +931,7 @@ const SingleProduct = ({ product }) => {
                         >
                           {sole.image ? (
                             <div
-                              className={`relative md:h-12 md:w-12 h-6 w-6 overflow-hidden rounded-full ${
+                              className={`relative md:h-12 md:w-12 h-10 w-10 overflow-hidden rounded-full ${
                                 String(selectedBase) === String(sole._id)
                                   ? 'border-2 border-black'
                                   : 'border border-gray-500'
@@ -977,7 +977,7 @@ const SingleProduct = ({ product }) => {
                     Select Strap
                   </h3>
 
-                  <div className="flex md:flex-wrap flex-row overflow-y-scroll md:overflow-hidden md:gap-3 gap-1">
+                  <div className="flex md:flex-wrap flex-row overflow-x-auto overflow-y-hidden md:overflow-hidden md:gap-3 gap-2 pb-2">
                     {strapColors.map((strap) => {
                       const available = selectedSize
                         ? isAvailableBySize(strap, selectedSize)
@@ -995,7 +995,7 @@ const SingleProduct = ({ product }) => {
                         >
                           {strap.image ? (
                             <div
-                              className={`relative h-8 w-8 overflow-hidden rounded-full ${
+                              className={`relative md:h-12 md:w-12 h-10 w-10 overflow-hidden rounded-full ${
                                 String(selectedStrap) === String(strap._id)
                                   ? 'border-2 border-black'
                                   : 'border-2 border-gray-300'
@@ -1042,7 +1042,7 @@ const SingleProduct = ({ product }) => {
                       Select Thumb
                     </h3>
 
-                    <div className="flex md:flex-wrap flex-row overflow-y-scroll md:overflow-hidden gap-3">
+                    <div className="flex md:flex-wrap flex-row overflow-x-auto overflow-y-hidden md:overflow-hidden gap-3 pb-2">
                       {thumbColors.map((thumb) => {
                         const available = selectedSize
                           ? isAvailableBySize(thumb, selectedSize)
@@ -1156,7 +1156,7 @@ const SingleProduct = ({ product }) => {
                 addToCartLock.current
               }
               onClick={handleAddToCart}
-              className="mt-8 w-full rounded-md bg-black px-6 py-3 font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300"
+              className="mt-8 w-full rounded-md bg-black px-6 py-3 font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 sticky bottom-4 z-20 md:static"
             >
               {cartLoading
                 ? 'Adding...'
@@ -1169,7 +1169,7 @@ const SingleProduct = ({ product }) => {
           </div>
           <div>
             {product.description && (
-              <p className="mt-4 text-sm leading-6 text-gray-600 md:block lg:block hidden">
+              <p className="mt-4 text-sm leading-6 text-gray-600">
                 {product.description}
               </p>
             )}

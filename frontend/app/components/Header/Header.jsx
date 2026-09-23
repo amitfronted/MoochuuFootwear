@@ -59,7 +59,7 @@ const Header = () => {
            ${isInnerPage ? 'bg-[#fdea07]' : ''}
           ${
             sticky
-              ? 'fixed top-0 left-0 bg-[rgb(253_234_7/0.50)] shadow-md border-b border-black animate-slideDown'
+              ? 'fixed top-0 left-0 bg-[rgb(253_234_7/0.50)] backdrop-blur-sm shadow-md border-b border-black animate-slideDown'
               : 'fixed bg-[#fdea07]'
           }
         `}
@@ -82,12 +82,12 @@ const Header = () => {
           <div className="md:w-1/3 hidden md:flex">
             <Navbar />
           </div>
-          <div className="md:w-1/3 w-2/3 flex md:justify-center md:items-center justify-start items-center gap-2 md:gap-0">
+          <div className="md:w-1/3 w-2/3 flex md:justify-center md:items-center justify-start items-center gap-1 sm:gap-2 md:gap-0">
             <MobileHeader />
             <Logo />
           </div>
-          <div className="md:w-1/3 w-1/3 flex justify-end items-end">
-            <div className="flex items-center gap-6">
+          <div className="md:w-1/3 w-auto flex justify-end items-end">
+            <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
               <CartNavbar toggleCart={toggleCart} totalItem={totalItems} />
 
               <UserNavbar

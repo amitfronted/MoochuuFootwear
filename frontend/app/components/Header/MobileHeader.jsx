@@ -31,7 +31,7 @@ const MobileHeader = () => {
       </button>
 
       <div
-        className={`md:hidden flex flex-col justify-start items-center bg-white w-full z-40 min-h-screen overflow-scroll fixed top-0 left-0 duration-300 transition-transform transform ${openMenu ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`pt-16 md:hidden flex flex-col justify-start items-center bg-white w-full z-40 min-h-screen overflow-scroll fixed top-0 left-0 duration-300 transition-transform transform ${openMenu ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="border-b border-black w-full py-4 flex justify-end items-center px-4">
           <Logo />
@@ -42,28 +42,28 @@ const MobileHeader = () => {
             <Link
               href="/"
               onClick={handleOpenMenu}
-              className="flex w-full text-grey-600 hover:text-black mb-2"
+              className="flex w-full text-grey-600 hover:text-black py-3"
             >
               Home
             </Link>
             <Link
               href="/about"
               onClick={handleOpenMenu}
-              className="flex w-full text-grey-600 hover:text-black mb-2"
+              className="flex w-full text-grey-600 hover:text-black py-3"
             >
               About
             </Link>
             <Link
               href="/shop"
               onClick={handleOpenMenu}
-              className="flex w-full text-grey-600 hover:text-black mb-2"
+              className="flex w-full text-grey-600 hover:text-black py-3"
             >
               Shops
             </Link>
             <Link
               href="/"
               onClick={handleOpenMenu}
-              className="flex w-full text-grey-600 hover:text-black mb-2"
+              className="flex w-full text-grey-600 hover:text-black py-3"
             >
               Customize
             </Link>

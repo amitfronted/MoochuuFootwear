@@ -55,11 +55,11 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${hostGrotesk.variable} ${rockSalt.variable}`}>
-      <body className="min-h-screen antialiased">
+      <body className="min-h-screen antialiased overflow-x-hidden">
         <Providers>
           <Header />
 
-          <main className="bg-[#fdea07] md:mt-22 mt-18 min-h-screen">
+          <main className="bg-[#fdea07] md:mt-[88px] mt-[72px] min-h-screen">
             {children}
           </main>
 

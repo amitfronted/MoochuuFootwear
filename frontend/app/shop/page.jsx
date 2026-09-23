@@ -66,14 +66,14 @@ const ShopsContent = () => {
 
   return (
     <>
-      <section className="relative">
+      <section className="relative h-40 sm:h-auto overflow-hidden">
         <Image
           src="/shopBanner2.png"
           alt="inner banner"
           width={1920}
           height={1020}
           sizes="100vw"
-          className="w-full h-auto"
+          className="w-full h-full sm:h-auto object-cover"
           loading="eager"
         />
       </section>
@@ -84,15 +84,17 @@ const ShopsContent = () => {
             {totalProducts} Products found
           </h4>
 
-          <div className="flex flex-wrap gap-4">
-            <SortOptions />
+          <div className="flex flex-col sm:flex-row flex-wrap gap-4 w-full md:w-auto">
+            <div className="w-full sm:w-auto">
+              <SortOptions />
+            </div>
 
-            <div className="flex items-center justify-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-start sm:justify-end gap-2 sm:gap-3 w-full sm:w-auto">
               <label className="text-md font-medium text-black">Category</label>
               <select
                 value={category}
                 onChange={handleCategoryChange}
-                className="border p-1 border-gray-600 rounded-md focus:outline-none"
+                className="border p-2 sm:p-1 border-gray-600 rounded-md focus:outline-none w-full sm:w-auto bg-white"
               >
                 <option value="">All Categories</option>
                 <option value="men">Men</option>
@@ -102,12 +104,12 @@ const ShopsContent = () => {
               </select>
             </div>
 
-            <div className="flex items-center justify-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-start sm:justify-end gap-2 sm:gap-3 w-full sm:w-auto">
               <label className="text-md font-medium text-black">Type</label>
               <select
                 value={productType}
                 onChange={handleTypeChange}
-                className="border p-1 border-gray-600 rounded-md focus:outline-none"
+                className="border p-2 sm:p-1 border-gray-600 rounded-md focus:outline-none w-full sm:w-auto bg-white"
               >
                 <option value="">All Types</option>
                 <option value="CUSTOMIZABLE">Customizable</option>
