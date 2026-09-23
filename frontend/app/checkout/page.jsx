@@ -373,7 +373,7 @@ const Checkout = () => {
   if (cartLoading || authLoading) {
     return (
       <ProtectedRoute>
-        <section className="min-h-[70vh] bg-gray-100 px-4 py-20">
+        <section className="min-h-[70vh] px-4 py-20">
           <div className="flex justify-center py-20">
             <Loader />
           </div>
@@ -384,7 +384,7 @@ const Checkout = () => {
 
   return (
     <ProtectedRoute>
-      <section className="min-h-screen bg-gray-100 px-4 py-12 md:px-8">
+      <section className="min-h-screen px-4 py-12 md:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="mb-8">
             <h1 className="text-3xl font-semibold text-gray-900">Checkout</h1>

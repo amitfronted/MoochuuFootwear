@@ -96,10 +96,10 @@ const MyAccount = () => {
 
   return (
     <>
-      <div className="w-full rounded-md bg-white shadow-md">
-        <div className="flex flex-col gap-4 border-b border-gray-200 p-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="w-full rounded-md shadow-md border border-gray-400">
+        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h4 className="text-lg font-medium text-gray-700">My Profile</h4>
+            <h4 className="text-lg font-medium text-black">My Profile</h4>
 
             <p className="text-sm text-gray-500">
               All your account information in one place

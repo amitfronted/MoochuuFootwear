@@ -76,9 +76,9 @@ const AccountSidebar = () => {
   };
 
   return (
-    <aside className="h-max w-full overflow-hidden rounded-md shadow-md">
+    <aside className="h-max w-full overflow-hidden rounded-md border border-gray-400">
       {/* Profile */}
-      <div className="flex flex-col items-center justify-center bg-white p-4">
+      <div className="flex flex-col items-center justify-center p-4">
         <div className="group relative mt-3 h-24 w-24 overflow-hidden rounded-full">
           <Image
             src={user?.avatar || '/man.png'}
@@ -108,7 +108,7 @@ const AccountSidebar = () => {
       </div>
 
       {/* Navigation */}
-      <nav className="bg-gray-100">
+      <nav>
         {navLinks.map((item) => {
           const isActive = pathname === item.href;
 
@@ -116,10 +116,10 @@ const AccountSidebar = () => {
             <Link
               key={item.name}
               href={item.href}
-              className={`relative flex w-full items-center justify-start border-b border-gray-300 px-4 py-4 font-bold text-gray-700 transition-all ${
+              className={`relative flex w-full items-center justify-start border-b border-gray-400 px-4 py-4 font-bold text-black transition-all ${
                 isActive
-                  ? 'border-l-4 border-l-amber-500 bg-amber-50 text-amber-600'
-                  : 'border-l-4 border-l-transparent hover:bg-gray-200'
+                  ? 'border-l-4 border-l-black bg-[#fff200] text-amber-600'
+                  : 'border-l-4 border-l-transparent hover:bg-[#fff200]'
               }`}
             >
               {item.icon}
@@ -131,7 +131,7 @@ const AccountSidebar = () => {
         <button
           type="button"
           onClick={handleLogout}
-          className="relative flex w-full items-center justify-start border-b border-gray-300 px-4 py-4 font-bold text-gray-700 transition-all border-l-4 border-l-transparent hover:bg-gray-200 cursor-pointer"
+          className="relative flex w-full items-center justify-start border-b border-gray-400 px-4 py-4 font-bold text-black transition-all border-l-4 border-l-transparent hover:bg-[#fff200] cursor-pointer"
         >
           <HiOutlineLogout size={20} />
           <span className="ml-2">Logout</span>

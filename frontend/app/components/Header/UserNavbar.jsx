@@ -5,12 +5,18 @@ import { LiaAngleDownSolid } from 'react-icons/lia';
 import { CiUser, CiLogout } from 'react-icons/ci';
 import { useAuth } from '@/app/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { FaRegUser } from 'react-icons/fa';
 
 const UserNavbar = ({ toggleUserdrawer, userDrawerOpen }) => {
   const { user, logout } = useAuth();
   const router = useRouter();
 
-  if (!user) return null;
+  if (!user)
+    return (
+      <Link href={'/login'} className="cursor-pointer group">
+        <FaRegUser className="transition-all duration-1000 w-5 h-5 group-hover:w-5.5 group-hover:h-5.5" />
+      </Link>
+    );
 
   const handleLogout = async () => {
     try {

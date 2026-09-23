@@ -7,8 +7,8 @@ const Footer = () => {
   return (
     <>
       <footer
-        className="relative py-8 md:px-12 px-2 border-t-2 border-black"
-        style={{ backgroundImage: "url('/footer.png')" }}
+        className="relative py-8 md:px-12 px-2 border-t-2 border-black bg-[#fff200]"
+        // style={{ backgroundImage: "url('/footer.png')" }}
       >
         <div className="container mx-auto flex flex-col md:flex-col lg:flex-row justify-center items-start md:justify-between md:items-center md:gap-0 gap-y-4">
           <div className="lg:w-1/4 md:w-1/4 w-full flex flex-col md:justify-center md:items-start items-center justify-center">

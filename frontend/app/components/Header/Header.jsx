@@ -56,11 +56,11 @@ const Header = () => {
           transition-all
           duration-500
           ease-in-out
-           ${isInnerPage ? 'bg-[#fdea07]' : ''}
+           ${isInnerPage ? 'bg-[#fff200]' : ''}
           ${
             sticky
               ? 'fixed top-0 left-0 bg-[rgb(253_234_7/0.50)] backdrop-blur-sm shadow-md border-b border-black animate-slideDown'
-              : 'fixed bg-[#fdea07]'
+              : 'fixed bg-[#fff200]'
           }
         `}
       >
@@ -86,7 +86,7 @@ const Header = () => {
             <MobileHeader />
             <Logo />
           </div>
-          <div className="md:w-1/3 w-auto flex justify-end items-end">
+          <div className="md:w-1/3 w-auto flex justify-end items-center gap-4">
             <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
               <CartNavbar toggleCart={toggleCart} totalItem={totalItems} />
 

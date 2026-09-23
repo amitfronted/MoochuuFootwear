@@ -741,13 +741,21 @@ const SingleProduct = ({ product }) => {
 
   return (
     <>
-      <div className="mx-auto grid max-w-360 grid-cols-1 md:gap-6 gap-0 pt-8 md:pb-8 pb-0 lg:grid-cols-12 px-4 lg:px-0 md:px-0">
+      <div className="mx-auto grid max-w-360 grid-cols-1 md:gap-6 gap-0 md:pt-8 md:pb-8 mt-0 pb-0 lg:grid-cols-12 px-4 lg:px-0 md:px-0">
         {/* =========================================
             GALLERY
         ========================================= */}
 
         <div className="flex gap-3 lg:sticky lg:top-6 lg:col-span-4 lg:max-h-[calc(100vh-3rem)] lg:self-start">
           <div className="flex-1/2">
+            <div className="sm:hidden md:hidden flex items-center justify-between pb-2">
+              <h2 className="text-xl font-bold text-gray-900 md:text-3xl">
+                {product.name}
+              </h2>
+              <p className="text-xl font-semibold text-gray-900">
+                ₹{product.basePrice}
+              </p>
+            </div>
             <div className="relative flex items-center justify-center overflow-hidden rounded-xl border border-gray-400 bg-white">
               <div className="relative lg:h-140 md:h-140 h-60 w-full" />
               {isStandard && product.mainImage && (
@@ -807,7 +815,7 @@ const SingleProduct = ({ product }) => {
           </div>
         </div>
         <div className="lg:col-span-4">
-          <div className="flex flex-row overflow-x-auto gap-2 lg:flex-col md:flex-col">
+          <div className="md:flex hidden flex-row overflow-x-auto gap-2 lg:flex-col md:flex-col">
             {product.galleryImages?.map((image, index) => (
               <div
                 key={image || index}
@@ -832,15 +840,15 @@ const SingleProduct = ({ product }) => {
 
         <div className="lg:sticky lg:top-6 lg:col-span-4 lg:max-h-[calc(100vh-3rem)] lg:self-start">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
+            <h2 className="text-2xl font-bold text-gray-900 md:text-3xl sm:block md:block hidden">
               {product.name}
-            </h1>
+            </h2>
 
             {/* <p className="mt-2 text-sm text-gray-500 hidden md:block lg:block">
               Product Code: {product.productCode}
             </p> */}
 
-            <p className="mt-3 text-2xl font-semibold text-gray-900">
+            <p className="mt-3 text-2xl font-semibold text-gray-900 sm:block md:block hidden">
               ₹{product.basePrice}
             </p>
 
@@ -855,7 +863,7 @@ const SingleProduct = ({ product }) => {
             <div className="md:mt-4 mt-2 flex gap-4 items-center justify-start">
               <h3 className="font-semibold text-gray-900">Select Size</h3>
 
-              <div className="flex md:flex-wrap flex-row overflow-scroll md:overflow-hidden gap-3">
+              <div className="flex md:flex-wrap flex-row gap-3">
                 {/* {sizes.map((size) => {
                   const available = isSizeAvailable(size);
 

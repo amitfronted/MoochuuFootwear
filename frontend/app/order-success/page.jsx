@@ -147,7 +147,7 @@ const OrderContent = () => {
    */
   if (loading && !order) {
     return (
-      <section className="min-h-[70vh] bg-gray-100 px-4 py-20">
+      <section className="min-h-[70vh] px-4 py-20">
         <div className="flex justify-center py-20">
           <Loader />
         </div>
@@ -160,7 +160,7 @@ const OrderContent = () => {
    */
   if (error || !order) {
     return (
-      <section className="min-h-[70vh] bg-gray-100 px-4 py-20">
+      <section className="min-h-[70vh] px-4 py-20">
         <div className="mx-auto max-w-xl rounded-md bg-white p-10 text-center shadow-sm">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50">
             <span className="text-3xl text-red-500">!</span>
@@ -208,7 +208,7 @@ const OrderContent = () => {
         {/* SUCCESS HEADER */}
         {/* -------------------------------- */}
 
-        <div className="rounded-md bg-white p-8 text-center shadow-sm">
+        <div className="rounded-md bg-white border border-gray-400 p-8 text-center shadow-sm">
           <FiCheckCircle className="mx-auto text-6xl text-green-500" />
 
           <h1 className="mt-5 text-3xl font-bold text-gray-900">
@@ -220,7 +220,7 @@ const OrderContent = () => {
           </p>
 
           {/* Order Number */}
-          <div className="mx-auto mt-6 max-w-md rounded-md bg-gray-50 p-4">
+          <div className="mx-auto mt-6 max-w-md rounded-md bg-amber-100 p-4">
             <p className="text-sm text-gray-500">Order Number</p>
 
             <p className="mt-1 text-lg font-bold text-gray-900">
@@ -253,7 +253,7 @@ const OrderContent = () => {
           {/* ORDER DETAILS */}
           {/* -------------------------------- */}
 
-          <div className="rounded-md bg-white p-6 shadow-sm">
+          <div className="rounded-md bg-white p-6 border border-gray-400 shadow-sm">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               <FiPackage />
               Order Details
@@ -268,7 +268,7 @@ const OrderContent = () => {
                 items.map((item, index) => (
                   <div
                     key={item._id || `${item.productId}-${item.size}-${index}`}
-                    className="border-b border-gray-100 pb-4 last:border-0"
+                    className="border-b border-gray-400 pb-4 last:border-0"
                   >
                     <div className="flex justify-between gap-4">
                       {/* Product information */}
@@ -380,7 +380,7 @@ const OrderContent = () => {
           {/* DELIVERY ADDRESS */}
           {/* -------------------------------- */}
 
-          <div className="rounded-md bg-white p-6 shadow-sm">
+          <div className="rounded-md bg-white border border-gray-400 p-6 shadow-sm">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               <FiMapPin />
               Delivery Address
@@ -424,7 +424,7 @@ const OrderContent = () => {
             {/* ORDER STATUS */}
             {/* -------------------------------- */}
 
-            <div className="mt-6 rounded-md bg-green-50 p-4 text-sm text-green-900">
+            <div className="mt-6 rounded-md bg-amber-100 p-4 text-sm text-green-900">
               <p>
                 <strong>Status:</strong> {order.orderStatus || 'PLACED'}
               </p>
@@ -446,7 +446,7 @@ const OrderContent = () => {
         {(order.shipping?.courierName ||
           order.shipping?.trackingNumber ||
           order.shipping?.trackingUrl) && (
-          <div className="rounded-md bg-white p-6 shadow-sm mt-4">
+          <div className="rounded-md bg-white border border-gray-400 p-6 shadow-sm mt-4">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               <FiTruck />
               Shipment Tracking

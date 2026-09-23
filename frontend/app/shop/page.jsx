@@ -78,7 +78,7 @@ const ShopsContent = () => {
         />
       </section>
 
-      <section className="bg-[#fdea07] p-4 pt-8 pb-24">
+      <section className="p-4 pt-8 pb-24">
         <div className="flex md:flex-row flex-col md:justify-between gap-4 md:gap-0 justify-start md:items-center items-end mb-12">
           <h4 className="text-xl font-semibold text-black w-full md:w-auto text-center md:text-left">
             {totalProducts} Products found

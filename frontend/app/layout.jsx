@@ -59,9 +59,7 @@ export default function RootLayout({ children }) {
         <Providers>
           <Header />
 
-          <main className="bg-[#fdea07] md:mt-[88px] mt-[72px] min-h-screen">
-            {children}
-          </main>
+          <main className="md:mt-22 mt-18 min-h-screen">{children}</main>
 
           <Footer />
         </Providers>

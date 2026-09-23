@@ -26,7 +26,7 @@ const ProductDetails = async ({ params }) => {
   }
 
   return (
-    <section className="relative py-6 lg:py-10 px-4 lg:px-0 bg-[#fdea07]">
+    <section className="relative py-6 lg:py-10 px-4 lg:px-0">
       <SingleProduct product={product} />
     </section>
   );
