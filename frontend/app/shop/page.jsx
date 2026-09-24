@@ -1,47 +1,56 @@
 'use client';
+
 import React, { Suspense, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
+
 import SortOptions from '../components/SortOptions';
 import ProductCard from '../components/ProductCard';
 import { fetchAllProducts } from '../lib/api';
 import Loader from '../components/Loader';
-import Pagination from '../components/Pagination';
 
 const ShopsContent = () => {
   const searchParams = useSearchParams();
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
 
   // Filter States
   const [category, setCategory] = useState('');
   const [productType, setProductType] = useState('');
 
-  // Pagination States
+  // Pagination
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
 
-  // Read sort parameter directly from searchParams
   const sort = searchParams.get('sort') || '';
 
+  // Initial products / filter change
   useEffect(() => {
-    const loadProducts = async () => {
+    const loadInitialProducts = async () => {
       setLoading(true);
       setError(null);
+
       try {
-        const filters = { page, limit: 8 };
+        const filters = {
+          page: 1,
+          limit: 8,
+        };
+
         if (category) filters.category = category;
         if (productType) filters.productType = productType;
         if (sort) filters.sort = sort;
 
         const response = await fetchAllProducts(filters);
+
         if (response.success) {
           setProducts(response.data);
           setTotalPages(response.totalPages);
           setTotalProducts(response.total);
+          setPage(1);
         }
       } catch (err) {
         console.error('Failed to load products:', err);
@@ -51,18 +60,92 @@ const ShopsContent = () => {
       }
     };
 
-    loadProducts();
-  }, [category, productType, sort, page]);
+    loadInitialProducts();
+  }, [category, productType, sort]);
+
+  // Load next 4 products
+  useEffect(() => {
+    if (page === 1) return;
+    if (page > totalPages) return;
+
+    const loadMoreProducts = async () => {
+      setLoadingMore(true);
+
+      try {
+        const filters = {
+          page,
+          limit: 4,
+        };
+
+        if (category) filters.category = category;
+        if (productType) filters.productType = productType;
+        if (sort) filters.sort = sort;
+
+        const response = await fetchAllProducts(filters);
+
+        if (response.success) {
+          setProducts((prevProducts) => {
+            const existingIds = new Set(
+              prevProducts.map((product) => product._id),
+            );
+
+            const newProducts = response.data.filter(
+              (product) => !existingIds.has(product._id),
+            );
+
+            return [...prevProducts, ...newProducts];
+          });
+
+          setTotalPages(response.totalPages);
+          setTotalProducts(response.total);
+        }
+      } catch (err) {
+        console.error('Failed to load more products:', err);
+      } finally {
+        setLoadingMore(false);
+      }
+    };
+
+    loadMoreProducts();
+  }, [page]);
+
+  // Detect when user reaches near bottom
+  useEffect(() => {
+    const handleScroll = () => {
+      if (loading || loadingMore) return;
+
+      // Don't load if there are no more pages
+      if (page >= totalPages) return;
+
+      const scrollPosition = window.innerHeight + window.scrollY;
+
+      const documentHeight = document.documentElement.scrollHeight;
+
+      // Load next products when 300px from bottom
+      if (documentHeight - scrollPosition < 300) {
+        setPage((prevPage) => prevPage + 1);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [loading, loadingMore, page, totalPages]);
 
   const handleCategoryChange = (e) => {
     setCategory(e.target.value);
-    setPage(1); // Reset to page 1 on filter change
+    setProducts([]);
+    setPage(1);
   };
 
   const handleTypeChange = (e) => {
     setProductType(e.target.value);
-    setPage(1); // Reset to page 1 on filter change
+    setProducts([]);
+    setPage(1);
   };
+  console.log(products);
 
   return (
     <>
@@ -89,8 +172,10 @@ const ShopsContent = () => {
               <SortOptions />
             </div>
 
+            {/* Category */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-start sm:justify-end gap-2 sm:gap-3 w-full sm:w-auto">
               <label className="text-md font-medium text-black">Category</label>
+
               <select
                 value={category}
                 onChange={handleCategoryChange}
@@ -104,8 +189,10 @@ const ShopsContent = () => {
               </select>
             </div>
 
+            {/* Type */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-start sm:justify-end gap-2 sm:gap-3 w-full sm:w-auto">
               <label className="text-md font-medium text-black">Type</label>
+
               <select
                 value={productType}
                 onChange={handleTypeChange}
@@ -119,6 +206,7 @@ const ShopsContent = () => {
           </div>
         </div>
 
+        {/* Products */}
         {loading ? (
           <Loader />
         ) : error ? (
@@ -134,6 +222,7 @@ const ShopsContent = () => {
                 key={product._id}
                 imgUrl={product.mainImage}
                 id={product._id}
+                hoverImage={product?.galleryImages?.[0] || ''}
                 productName={product.name}
                 price={product.basePrice}
               />
@@ -141,16 +230,22 @@ const ShopsContent = () => {
           </div>
         )}
 
-        {/* Dynamic Pagination Component */}
-        {totalPages > 1 && (
-          <Pagination
-            currentPage={page}
-            totalPages={totalPages}
-            totalResults={totalProducts}
-            limit={8}
-            onPageChange={(newPage) => setPage(newPage)}
-          />
+        {/* Loading More */}
+        {loadingMore && (
+          <div className="flex justify-center py-10">
+            <Loader />
+          </div>
         )}
+
+        {/* End of products */}
+        {!loading &&
+          !loadingMore &&
+          products.length > 0 &&
+          page >= totalPages && (
+            <div className="text-center py-10 text-gray-500">
+              No more products
+            </div>
+          )}
       </section>
     </>
   );
