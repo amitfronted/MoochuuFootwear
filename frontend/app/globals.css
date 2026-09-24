@@ -273,3 +273,59 @@ body {
   border-radius: 8px;
   background-color: var(--color-yellow);
 }
+
+.product-swiper .swiper-button-next,
+.product-swiper .swiper-button-prev {
+  width: 42px;
+  height: 42px;
+  border-radius: 9999px;
+
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(6px);
+
+  border: 1px solid rgba(0, 0, 0, 0.12);
+
+  color: #000;
+
+  transition:
+    background 0.3s ease,
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+/* Arrow Icon */
+.product-swiper .swiper-button-next::after,
+.product-swiper .swiper-button-prev::after {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Hover */
+.product-swiper .swiper-button-next:hover,
+.product-swiper .swiper-button-prev:hover {
+  background: rgba(255, 255, 255, 0.95);
+
+  transform: scale(1.08);
+
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
+
+/* Position */
+.product-swiper .swiper-button-prev {
+  left: 10px;
+}
+
+.product-swiper .swiper-button-next {
+  right: 10px;
+}
+
+/* Disabled arrow */
+.product-swiper .swiper-button-disabled {
+  opacity: 0.35;
+}
+
+.product-swiper :is(.swiper-button-prev, .swiper-button-next) ::slotted(svg),
+.product-swiper :is(.swiper-button-prev, .swiper-button-next) svg {
+  width: 40% !important;
+  height: 40% !important;
+}

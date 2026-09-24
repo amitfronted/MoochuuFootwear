@@ -6,6 +6,13 @@ import ProductCard from '../ProductCard';
 import { fetchAllProducts } from '../../lib/api';
 import Loader from '../Loader';
 
+import { Swiper, SwiperSlide } from 'swiper/react';
+import { Pagination, Navigation } from 'swiper/modules';
+
+import 'swiper/css';
+import 'swiper/css/pagination';
+import 'swiper/css/navigation';
+
 const FourBoxSection = ({ title, subtitle, categories = [] }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -79,17 +86,48 @@ const FourBoxSection = ({ title, subtitle, categories = [] }) => {
           No products available.
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 lg:gap-6 max-w-[1600px] mx-auto">
-          {products.map((product) => (
-            <ProductCard
-              key={product._id}
-              imgUrl={product.mainImage}
-              id={product._id}
-              hoverImage={product?.galleryImages?.[0] || ''}
-              productName={product.name}
-              price={product.basePrice}
-            />
-          ))}
+        <div className="max-w-[1600px] mx-auto">
+          <Swiper
+            modules={[Pagination, Navigation]}
+            spaceBetween={16}
+            slidesPerView={1}
+            navigation
+            pagination={{
+              clickable: true,
+            }}
+            breakpoints={{
+              // Mobile
+              0: {
+                slidesPerView: 1,
+                spaceBetween: 12,
+              },
+
+              // Tablet
+              640: {
+                slidesPerView: 2,
+                spaceBetween: 16,
+              },
+
+              // Desktop
+              1024: {
+                slidesPerView: 4,
+                spaceBetween: 20,
+              },
+            }}
+            className="product-swiper"
+          >
+            {products.map((product) => (
+              <SwiperSlide key={product._id}>
+                <ProductCard
+                  imgUrl={product.mainImage}
+                  id={product._id}
+                  hoverImage={product?.galleryImages?.[0] || ''}
+                  productName={product.name}
+                  price={product.basePrice}
+                />
+              </SwiperSlide>
+            ))}
+          </Swiper>
         </div>
       )}
     </section>
