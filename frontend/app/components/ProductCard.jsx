@@ -55,8 +55,8 @@ const ProductCard = ({ imgUrl, id, productName, price, hoverImage }) => {
                 left-0
                 w-full
 
-                bg-white/90
-                backdrop-blur-md
+                bg-white/60
+                
 
                 px-2
                 py-3
