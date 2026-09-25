@@ -1185,7 +1185,7 @@ const SingleProduct = ({ product }) => {
         </div>
       </div>
 
-      <RelatedProducts />
+      <RelatedProducts productId={product?._id} category={product?.category} />
     </>
   );
 };

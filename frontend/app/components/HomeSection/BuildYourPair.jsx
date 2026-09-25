@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { IoIosArrowRoundForward } from 'react-icons/io';
 
 const BuildYourPair = () => {
@@ -14,9 +15,12 @@ const BuildYourPair = () => {
           <p className="uppercase font-medium pt-2.5">
             Made to mix. Made for you.
           </p>
-          <button className="flex border border-black mt-5 py-3 px-5 items-center justify-center font-bold uppercase mb-20 hover:bg-black hover:text-white transition-colors duration-700 cursor-pointer">
+          <Link
+            href={'/shop'}
+            className="inline-flex border border-black mt-5 py-3 px-5 items-center justify-center font-bold uppercase mb-20 hover:bg-black hover:text-white transition-colors duration-700 cursor-pointer"
+          >
             Customize Now <IoIosArrowRoundForward className="ml-6 w-8 h-8" />
-          </button>
+          </Link>
         </div>
       </div>
     </section>

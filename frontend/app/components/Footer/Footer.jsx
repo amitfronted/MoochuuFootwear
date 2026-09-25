@@ -40,7 +40,7 @@ const Footer = () => {
               </li>
               <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 after:hidden sm:after:block md:px-8 px-2'>
                 <Link
-                  href={'/'}
+                  href={'/terms-and-condition'}
                   className="relative 
                 inline-block   
                 after:content-['']   
@@ -55,7 +55,7 @@ const Footer = () => {
                 after:duration-500   
                 hover:after:w-full"
                 >
-                  Customize
+                  Terms & Condition
                 </Link>
               </li>
               <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 after:hidden sm:after:block md:px-8 px-2'>

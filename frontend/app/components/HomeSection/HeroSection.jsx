@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import React from 'react';
 import { CiFaceSmile } from 'react-icons/ci';
 import { MdArrowOutward } from 'react-icons/md';
@@ -17,10 +18,13 @@ const HeroSection = () => {
           <p className="flex flex-col font-semibold leading-6 pt-4 pb-5 text-lg">
             <span>One slipper.</span> <span>Endless combinations</span>
           </p>
-          <button className="uppercase tracking-tight bg-yellow px-6 py-2 font-bold text-black rounded-full flex items-center justify-center hover:text-white hover:bg-black transition-colors duration-700 cursor-pointer">
+          <Link
+            href={'/shop'}
+            className="inline-flex uppercase tracking-tight bg-yellow px-6 py-2 font-bold text-black rounded-full items-center justify-center hover:text-white hover:bg-black transition-colors duration-700 cursor-pointer"
+          >
             Build your Pair
             <MdArrowOutward className="ml-3" />
-          </button>
+          </Link>
           <p className="uppercase mt-16 flex items-center justify-start">
             <CiFaceSmile className="mr-2 w-10 h-10" />
             <label className="flex flex-col font-semibold text-sm">
