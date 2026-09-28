@@ -12,7 +12,7 @@ export const Boaring = () => {
       <div className="relative">
         <div className="container mx-auto md:px-32 px-12">
           <div className="w-full md:pt-40 pt-0">
-            <h2 className="md:text-8xl text-3xl font-extrabold uppercase md:leading-[80px] leading-9 tracking-tight md:scale-y-150 md:min-h-[300px] md:bg-transparent md:p-0 p-2 bg-white/30">
+            <h2 className="md:text-8xl text-3xl font-extrabold uppercase md:leading-20 leading-9 tracking-tight md:scale-y-150 md:min-h-[300px] md:bg-transparent md:p-0 p-2 bg-white/30">
               Build for <br />
               people who <br />
               hate boaring.

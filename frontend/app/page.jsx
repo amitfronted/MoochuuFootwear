@@ -1,7 +1,8 @@
 import { Boaring } from './components/HomeSection/Boaring';
-import BuildYourPair from './components/HomeSection/BuildYourPair';
+import { BoaringNew } from './components/HomeSection/BoaringNew';
+import BuildYourPairNew from './components/HomeSection/BuildYourPairNew';
 import FourBoxSection from './components/HomeSection/FourBoxSection';
-import HeroSection from './components/HomeSection/HeroSection';
+import { HeroSectionTwo } from './components/HomeSection/HeroSectionTwo';
 import MidSection from './components/HomeSection/MidSection';
 import Slider from './components/HomeSection/Slider';
 import VideoSection from './components/HomeSection/VideoSection';
@@ -15,13 +16,13 @@ export default function Home() {
         subtitle="Versatile styles designed for everyone."
         categories={['unisex']}
       />
-      <HeroSection />
+      <HeroSectionTwo />
       <FourBoxSection
         title="For Women & Little Ones"
         subtitle="Explore beautiful styles for women and children."
         categories={['women', 'child']}
       />
-      <Boaring />
+      <BoaringNew />
       <FourBoxSection
         title="Men's & Unisex Styles"
         subtitle="Discover everyday comfort and timeless designs."
@@ -29,12 +30,7 @@ export default function Home() {
       />
       <Slider />
       <MidSection />
-      {/* <FourBoxSection
-        title="Men's & Unisex Styles"
-        subtitle="Discover everyday comfort and timeless designs."
-        categories={['men', 'child']}
-      /> */}
-      <BuildYourPair />
+      <BuildYourPairNew />
     </>
   );
 }

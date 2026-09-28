@@ -4,9 +4,9 @@ import React from 'react';
 const MidSection = () => {
   return (
     <section className="py-14">
-      <div className="container px-6">
+      <div className="container px-6 mx-auto">
         <Image
-          src="/midsecImage.png"
+          src="/midsecImagetwo.png"
           width={2170}
           height={319}
           loading="eager"
