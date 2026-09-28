@@ -5,6 +5,7 @@ import FourBoxSection from './components/HomeSection/FourBoxSection';
 import { HeroSectionTwo } from './components/HomeSection/HeroSectionTwo';
 import MidSection from './components/HomeSection/MidSection';
 import Slider from './components/HomeSection/Slider';
+import { ThreeSection } from './components/HomeSection/ThreeSection';
 import VideoSection from './components/HomeSection/VideoSection';
 
 export default function Home() {
@@ -30,6 +31,7 @@ export default function Home() {
       />
       <Slider />
       <MidSection />
+      <ThreeSection />
       <BuildYourPairNew />
     </>
   );
