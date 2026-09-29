@@ -13,7 +13,7 @@ const Footer = () => {
         <div className="container mx-auto flex flex-col md:flex-col lg:flex-row justify-center items-start md:justify-between md:items-center md:gap-0 gap-y-4">
           <div className="lg:w-1/4 md:w-1/4 w-full flex flex-col md:justify-center md:items-start items-center justify-center">
             <Logo />
-            <p className="font-semibold pt-3">Build for your mood.</p>
+            <p className="font-semibold pt-3">Happy Feet !</p>
             <CiFaceSmile className="pt-2 w-12 h-12" />
           </div>
           <div className="lg:w-1/2 md:w-3/4 w-full">
@@ -103,7 +103,7 @@ const Footer = () => {
           <div className="lg:w-1/4 md:w-full w-full flex justify-center flex-col md:items-end items-center">
             <p className="font-semibold">&copy; Moochuu 2026</p>
             <p className="font-rocksalt text-[12px] pt-3 flex gap-3 items-center">
-              Stay soft <span>: )</span>
+              Happy Feet <span>!</span>
             </p>
           </div>
         </div>

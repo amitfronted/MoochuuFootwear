@@ -13,117 +13,92 @@ const ShopsContent = () => {
   const searchParams = useSearchParams();
 
   const [products, setProducts] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(8);
+
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
 
-  // Filter States
+  // Filters
   const [category, setCategory] = useState('');
   const [productType, setProductType] = useState('');
 
-  // Pagination
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalProducts, setTotalProducts] = useState(0);
-
   const sort = searchParams.get('sort') || '';
 
-  // Initial products / filter change
+  // ==========================================
+  // LOAD ALL PRODUCTS
+  // ==========================================
+
   useEffect(() => {
-    const loadInitialProducts = async () => {
+    const loadProducts = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        const filters = {
-          page: 1,
-          limit: 8,
-        };
+        const filters = {};
 
-        if (category) filters.category = category;
-        if (productType) filters.productType = productType;
-        if (sort) filters.sort = sort;
+        if (category) {
+          filters.category = category;
+        }
+
+        if (productType) {
+          filters.productType = productType;
+        }
+
+        if (sort) {
+          filters.sort = sort;
+        }
 
         const response = await fetchAllProducts(filters);
 
         if (response.success) {
           setProducts(response.data);
-          setTotalPages(response.totalPages);
-          setTotalProducts(response.total);
-          setPage(1);
+
+          // Initially show only 8
+          setVisibleCount(8);
+        } else {
+          setProducts([]);
+          setVisibleCount(8);
         }
       } catch (err) {
         console.error('Failed to load products:', err);
+
         setError('Failed to fetch products. Please try again.');
+        setProducts([]);
       } finally {
         setLoading(false);
       }
     };
 
-    loadInitialProducts();
+    loadProducts();
   }, [category, productType, sort]);
 
-  // Load next 4 products
-  useEffect(() => {
-    if (page === 1) return;
-    if (page > totalPages) return;
+  // ==========================================
+  // INFINITE SCROLL
+  // ==========================================
 
-    const loadMoreProducts = async () => {
-      setLoadingMore(true);
-
-      try {
-        const filters = {
-          page,
-          limit: 4,
-        };
-
-        if (category) filters.category = category;
-        if (productType) filters.productType = productType;
-        if (sort) filters.sort = sort;
-
-        const response = await fetchAllProducts(filters);
-
-        if (response.success) {
-          setProducts((prevProducts) => {
-            const existingIds = new Set(
-              prevProducts.map((product) => product._id),
-            );
-
-            const newProducts = response.data.filter(
-              (product) => !existingIds.has(product._id),
-            );
-
-            return [...prevProducts, ...newProducts];
-          });
-
-          setTotalPages(response.totalPages);
-          setTotalProducts(response.total);
-        }
-      } catch (err) {
-        console.error('Failed to load more products:', err);
-      } finally {
-        setLoadingMore(false);
-      }
-    };
-
-    loadMoreProducts();
-  }, [page]);
-
-  // Detect when user reaches near bottom
   useEffect(() => {
     const handleScroll = () => {
       if (loading || loadingMore) return;
 
-      // Don't load if there are no more pages
-      if (page >= totalPages) return;
+      // All products already visible
+      if (visibleCount >= products.length) {
+        return;
+      }
 
       const scrollPosition = window.innerHeight + window.scrollY;
 
       const documentHeight = document.documentElement.scrollHeight;
 
-      // Load next products when 300px from bottom
+      // Load next 4 products
       if (documentHeight - scrollPosition < 300) {
-        setPage((prevPage) => prevPage + 1);
+        setLoadingMore(true);
+
+        setTimeout(() => {
+          setVisibleCount((prev) => Math.min(prev + 4, products.length));
+
+          setLoadingMore(false);
+        }, 300);
       }
     };
 
@@ -132,26 +107,34 @@ const ShopsContent = () => {
     return () => {
       window.removeEventListener('scroll', handleScroll);
     };
-  }, [loading, loadingMore, page, totalPages]);
+  }, [loading, loadingMore, visibleCount, products.length]);
+
+  // ==========================================
+  // FILTER HANDLERS
+  // ==========================================
 
   const handleCategoryChange = (e) => {
     setCategory(e.target.value);
-    setProducts([]);
-    setPage(1);
+    setVisibleCount(8);
   };
 
   const handleTypeChange = (e) => {
     setProductType(e.target.value);
-    setProducts([]);
-    setPage(1);
+    setVisibleCount(8);
   };
-  console.log(products);
+
+  // ==========================================
+  // VISIBLE PRODUCTS
+  // ==========================================
+
+  const visibleProducts = products.slice(0, visibleCount);
 
   return (
     <>
+      {/* Shop Banner */}
       <section className="relative h-40 sm:h-auto overflow-hidden">
         <Image
-          src="/shopBanner2.png"
+          src="/shop-thumbnail.png"
           alt="inner banner"
           width={1920}
           height={1020}
@@ -161,13 +144,16 @@ const ShopsContent = () => {
         />
       </section>
 
+      {/* Shop Content */}
       <section className="p-4 pt-8 pb-24">
+        {/* Header / Filters */}
         <div className="flex md:flex-row flex-col md:justify-between gap-4 md:gap-0 justify-start md:items-center items-end mb-12">
           <h4 className="text-xl font-semibold text-black w-full md:w-auto text-center md:text-left">
-            {totalProducts} Products found
+            {products.length} Products found
           </h4>
 
           <div className="flex flex-col sm:flex-row flex-wrap gap-4 w-full md:w-auto">
+            {/* Sort */}
             <div className="w-full sm:w-auto">
               <SortOptions />
             </div>
@@ -182,9 +168,13 @@ const ShopsContent = () => {
                 className="border p-2 sm:p-1 border-gray-600 rounded-md focus:outline-none w-full sm:w-auto bg-white"
               >
                 <option value="">All Categories</option>
+
                 <option value="men">Men</option>
+
                 <option value="women">Women</option>
+
                 <option value="child">Child</option>
+
                 <option value="unisex">Unisex</option>
               </select>
             </div>
@@ -199,7 +189,9 @@ const ShopsContent = () => {
                 className="border p-2 sm:p-1 border-gray-600 rounded-md focus:outline-none w-full sm:w-auto bg-white"
               >
                 <option value="">All Types</option>
+
                 <option value="CUSTOMIZABLE">Customizable</option>
+
                 <option value="STANDARD">Standard</option>
               </select>
             </div>
@@ -217,7 +209,7 @@ const ShopsContent = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {products.map((product) => (
+            {visibleProducts.map((product) => (
               <ProductCard
                 key={product._id}
                 imgUrl={product.mainImage}
@@ -237,11 +229,11 @@ const ShopsContent = () => {
           </div>
         )}
 
-        {/* End of products */}
+        {/* End of Products */}
         {!loading &&
           !loadingMore &&
           products.length > 0 &&
-          page >= totalPages && (
+          visibleCount >= products.length && (
             <div className="text-center py-10 text-gray-500">
               No more products
             </div>

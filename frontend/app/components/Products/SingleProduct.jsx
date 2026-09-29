@@ -6,9 +6,11 @@ import { useState, useEffect, useRef } from 'react';
 import RelatedProducts from './RelatedProducts';
 import { useCart } from '@/app/context/CartContext';
 import toast from 'react-hot-toast';
+import SizeChart from '../SizeChart';
 
 const SingleProduct = ({ product }) => {
   const { addToCart, cart, loading: cartLoading } = useCart();
+  const [showSizeChart, setShowSizeChart] = useState(false);
 
   /*
    * IMPORTANT:
@@ -905,6 +907,13 @@ const SingleProduct = ({ product }) => {
                     );
                   })}
                 </select>
+                <button
+                  type="button"
+                  onClick={() => setShowSizeChart(true)}
+                  className="text-sm font-medium underline underline-offset-4 hover:text-[#ff385c]"
+                >
+                  Size Chart
+                </button>
               </div>
             </div>
 
@@ -1211,6 +1220,11 @@ const SingleProduct = ({ product }) => {
       </div>
 
       <RelatedProducts productId={product?._id} category={product?.category} />
+      <SizeChart
+        isOpen={showSizeChart}
+        onClose={() => setShowSizeChart(false)}
+        sizeChartCode={product?.productCode}
+      />
     </>
   );
 };

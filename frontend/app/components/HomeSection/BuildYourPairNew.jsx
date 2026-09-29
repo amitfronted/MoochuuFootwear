@@ -5,17 +5,12 @@ import { IoIosArrowRoundForward } from 'react-icons/io';
 const BuildYourPairNew = () => {
   return (
     <section className="relative">
-      <Image
-        src="/footer-top-new.png"
-        alt="footer top"
-        width={1920}
-        height={1080}
-      />
-      <div className="absolute w-full bottom-3 sm:bottom-5 lg:bottom-12 z-9">
-        <div className="container mx-auto flex justify-start items-center lg:px-12 md:px-12 px-4">
+      <Image src="/home-last.png" alt="footer top" width={1920} height={1080} />
+      <div className="absolute w-full bottom-3 sm:top-18 md:top-32 lg:top-44 top-14 z-9">
+        <div className="container mx-auto flex justify-center items-center lg:px-12 md:px-12 px-4">
           <Link
             href={'/shop'}
-            className="inline-flex border border-black mt-5 md:py-3 py-0.5 md:px-5 px-2 text-[11px] md:text-[16px] items-center justify-center font-bold uppercase  hover:bg-black hover:text-white transition-colors duration-700 cursor-pointer"
+            className="inline-flex border border-black mt-5 md:py-3 py-0.5 md:px-5 px-2 text-[11px] md:text-[16px] items-center justify-center font-bold uppercase bg-black hover:bg-transparent hover:text-black text-white transition-colors duration-700 cursor-pointer"
           >
             Customize Now{' '}
             <IoIosArrowRoundForward className="md:ml-6 ml-2 md:w-8 md:h-8 w-6 h-6" />

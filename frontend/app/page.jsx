@@ -19,9 +19,9 @@ export default function Home() {
       />
       <HeroSectionTwo />
       <FourBoxSection
-        title="For Women & Little Ones"
-        subtitle="Explore beautiful styles for women and children."
-        categories={['women', 'child']}
+        title="Only For Women"
+        subtitle="Explore beautiful styles for women."
+        categories={['women']}
       />
       <BoaringNew />
       <FourBoxSection

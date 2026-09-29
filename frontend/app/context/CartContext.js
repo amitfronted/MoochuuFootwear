@@ -133,11 +133,7 @@ export const CartProvider = ({ children }) => {
         setLoading(true);
         setError(null);
 
-        console.log('ADD TO CART PAYLOAD:', payload);
-
         const response = await api.post('/cart/add', payload, getCartConfig());
-
-        console.log('ADD TO CART RESPONSE:', response.data);
 
         /*
          * Backend response:
