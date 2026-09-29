@@ -838,7 +838,7 @@ const SingleProduct = ({ product }) => {
             PRODUCT DETAILS
         ========================================= */}
 
-        <div className="lg:sticky lg:top-6 lg:col-span-4 lg:max-h-[calc(100vh-3rem)] lg:self-start">
+        <div className="lg:sticky lg:top-6 lg:col-span-4 lg:self-start">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 md:text-3xl sm:block md:block hidden">
               {product.name}
@@ -1176,11 +1176,36 @@ const SingleProduct = ({ product }) => {
             </button>
           </div>
           <div>
-            {product.description && (
+            {/* {product.description && (
               <p className="mt-4 text-sm leading-6 text-gray-600">
                 {product.description}
               </p>
-            )}
+            )} */}
+            <h3 className="mt-4 font-semibold underline text-xl pb-4">
+              Products Description
+            </h3>
+            <p>
+              Every Moo Chuu pair starts in two parts. Pick a sole, pick a
+              strap, and we put them together for you. The combination is yours,
+              whether that's black on black or pink on yellow.
+            </p>
+            <p>
+              Made using leftover material from car-upholstery and furniture
+              factories, so the pair you design keeps usable material out of the
+              scrap pile.
+            </p>
+            <ul className="pb-6 mt-4 list-disc pl-4">
+              <li>Your combo: choose your sole and strap colours</li>
+              <li>Non-slip tread for wet floors and busy days</li>
+              <li>Lightweight and water-friendly</li>
+              <li>Adjustable strap for a better fit</li>
+              <li>Easy to slip on and wear all day</li>
+            </ul>
+            <p>
+              Your pair is assembled to order, so please choose carefully. Once
+              your sole and strap are put together, the combination is final and
+              can't be changed or reworked later. What's your combo?
+            </p>
           </div>
         </div>
       </div>
