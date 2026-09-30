@@ -9,6 +9,7 @@ import MobileHeader from './MobileHeader';
 import CartDrawer from '../Cart/CartDrawer';
 import UserNavbar from './UserNavbar';
 import { useCart } from '@/app/context/CartContext';
+import TopSticker from '../TopSticker';
 
 const Header = () => {
   const { cart, cartLoading, totalItems, subtotal } = useCart();
@@ -46,10 +47,11 @@ const Header = () => {
 
   return (
     <>
+      <TopSticker />
       <header
         className={`
           fixed
-          top-0
+          top-12
           left-0
           w-full
           z-40          

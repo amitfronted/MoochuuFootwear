@@ -4,12 +4,12 @@ import React from 'react';
 const OurStory = () => {
   return (
     <section
-      className="relative bg-repeat lg:bg-cover py-60"
+      className="relative lg:bg-cover lg:bg-position-[100%_100%] md:bg-position-[60%_70%] bg-position-[65%_70%]"
       style={{ backgroundImage: "url('/about/ourstory-new.png')" }}
     >
-      <div className="container mx-auto px-12 grid grid-cols-12 gap-6 md:items-center">
-        <div className="md:col-span-6 lg:col-span-5 col-span-12">
-          <h2 className="flex items-end justify-start mb-8 lg:text-9xl md:text-5xl text-3xl text-white font-extrabold uppercase font-anton">
+      <div className="container mx-auto md:px-12 px-4 lg:py-60 py-20 md:bg-transparent bg-black/50 grid grid-cols-12 gap-6 md:items-center">
+        <div className="md:col-span-8 lg:col-span-5 col-span-12">
+          <h2 className="flex items-end justify-start mb-8 lg:text-9xl md:text-5xl text-5xl text-white font-extrabold uppercase font-anton">
             Our <span className="text-[#fff200] ml-4">Story</span>
           </h2>
 
