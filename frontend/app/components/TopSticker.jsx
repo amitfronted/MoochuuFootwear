@@ -7,7 +7,7 @@ function TopSticker() {
         {[...stickerItems, ...stickerItems].map((_, index) => (
           <img
             key={index}
-            src="/tricker.png"
+            src="/sticker.png"
             alt="Happy Feet"
             className="h-12 w-auto max-w-none shrink-0"
           />

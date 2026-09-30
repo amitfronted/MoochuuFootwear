@@ -6,7 +6,7 @@ const BuildYourPairNew = () => {
   return (
     <section className="relative">
       <Image src="/home-last.png" alt="footer top" width={1920} height={1080} />
-      <div className="absolute w-full bottom-3 sm:top-18 md:top-32 lg:top-44 top-14 z-9">
+      <div className="absolute w-full bottom-3 sm:top-30 md:top-52 lg:top-96 xl:pr-52 lg:pr-32 md:pr-20 top-14 z-9">
         <div className="container mx-auto flex justify-center items-center lg:px-12 md:px-12 px-4">
           <Link
             href={'/shop'}

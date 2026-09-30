@@ -33,7 +33,7 @@ export default function Home() {
       <MidSection />
       <FourBoxSection
         title="Only For Kids"
-        subtitle="Discover everyday comfort and timeless designs."
+        subtitle="Playful comfort made for little feet."
         categories={['child']}
       />
       <ThreeSection />
