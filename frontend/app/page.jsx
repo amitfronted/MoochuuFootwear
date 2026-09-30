@@ -25,12 +25,17 @@ export default function Home() {
       />
       <BoaringNew />
       <FourBoxSection
-        title="Men's & Unisex Styles"
+        title="Men & Unisex"
         subtitle="Discover everyday comfort and timeless designs."
         categories={['men', 'unisex']}
       />
       <Slider />
       <MidSection />
+      <FourBoxSection
+        title="Only For Kids"
+        subtitle="Discover everyday comfort and timeless designs."
+        categories={['child']}
+      />
       <ThreeSection />
       <BuildYourPairNew />
     </>
