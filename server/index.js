@@ -29,6 +29,9 @@ const PORT = process.env.PORT || 7000;
 const whitelist = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'http://159.65.154.123/',
+  'http://moochuuindia.com',
+  'https://www.moochuuindia.com',
   process.env.FRONTEND_URL,
   process.env.ADMIN_URL,
 ].filter(Boolean);
