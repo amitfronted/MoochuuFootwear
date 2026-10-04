@@ -1,0 +1,99 @@
+pipeline {
+    agent any
+    
+    tools {
+        nodejs "node26"
+    }
+    
+    environment {
+        PATH = "/usr/local/bin:/opt/homebrew/bin:${env.PATH}"
+        NODE_OPTIONS = "--max-old-space-size=4096"
+        APP_NAME = "api"
+        REMOTE_USER = "ubuntu"
+        REMOTE_PASS = "ubuntu"
+        REMOTE_HOST = "159.65.154.123"
+        REMOTE_DIR  = "/var/www/html/moochuu"
+        SSH_OPTS    = "-o StrictHostKeyChecking=no"
+    }
+    
+     stages {
+
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/amitfronted/MoochuuFootwear.git'
+            }
+        }
+        
+        
+
+        stage('Install') {
+            steps {
+                sh 'cd server && npm install && ls -la'
+            }
+        }
+        
+        stage('Test SSH') {
+            steps {
+                sshagent(credentials: ['moochuu-deploy-ssh']) {
+                    sh '''
+                      ssh -vvv $SSH_OPTS $REMOTE_USER@$REMOTE_HOST "echo SSH OK"
+                    '''
+                }
+            }
+        }
+        
+        stage('Upload Artifacts') {
+            steps {
+                sshagent(credentials: ['moochuu-deploy-ssh']) {
+                    sh '''
+                    rsync -avz --delete \
+                      --exclude='.git/' \
+                      --exclude='.gitignore/' \
+                      --exclude='node_modules/' \
+                      package.json \
+                      package-lock.json \
+                      ./ \
+                      $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR
+                    '''
+                }
+            }
+        }
+        
+        stage('Upload envs') {
+            steps {
+                sshagent(credentials: ['moochuu-deploy-ssh']) {
+                    sh '''
+                        ssh "$REMOTE_USER@$REMOTE_HOST" \
+                          "cp /var/www/html/envs/.env.api $REMOTE_DIR/server/.env"
+                    '''
+                }
+            }
+        }
+        
+        stage('Install Server Dependencies') {
+            steps {
+                sshagent(credentials: ['moochuu-deploy-ssh']) {
+                    sh '''
+                        ssh "$REMOTE_USER@$REMOTE_HOST" \
+                          "source ~/.nvm/nvm.sh && \
+                           nvm use 24 && \
+                           cd '$REMOTE_DIR/server' && \
+                           npm ci --omit=dev"
+                    '''
+                }
+            }
+        }
+        
+        stage('PM2 start / reload') {
+            steps {
+                sshagent(credentials: ['moochuu-deploy-ssh']) {
+                    sh '''
+                        ssh "$REMOTE_USER@$REMOTE_HOST" \
+                          "/var/www/scripts/api.sh"
+                    '''
+                }
+            }
+        }
+        
+     }
+}
