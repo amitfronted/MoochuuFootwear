@@ -11,12 +11,12 @@ const Footer = () => {
         // style={{ backgroundImage: "url('/footer.png')" }}
       >
         <div className="container mx-auto flex flex-col md:flex-col lg:flex-row justify-center items-start md:justify-between md:items-center md:gap-0 gap-y-4">
-          <div className="lg:w-1/4 md:w-1/4 w-full flex flex-col md:justify-center md:items-start items-center justify-center">
+          <div className="lg:w-1/4 md:w-1/6 w-full flex flex-col md:justify-center md:items-center items-center justify-center md:mb-6">
             <Logo />
             <p className="font-semibold pt-3">Happy Feet !</p>
             <CiFaceSmile className="pt-2 w-12 h-12" />
           </div>
-          <div className="lg:w-1/2 md:w-3/4 w-full">
+          <div className="lg:w-1/2 md:w-full w-full">
             <ul className="w-full flex justify-center items-center flex-wrap gap-4 sm:gap-2 md:text-lg text-sm font-semibold uppercase">
               <li className='relative after:content-[""] after:absolute after:w-0.5 after:h-6 after:bg-black after:top-0 after:right-0 after:hidden sm:after:block md:px-8 px-2'>
                 <Link

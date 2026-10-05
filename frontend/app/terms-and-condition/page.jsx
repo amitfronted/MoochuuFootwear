@@ -2,7 +2,7 @@ import React from 'react';
 
 const page = () => {
   return (
-    <section className="py-12">
+    <section className="py-22">
       <div className="container mx-auto px-12">
         <h1 className="text-4xl pb-4 font-bold">TERMS & CONDITIONS</h1>
         <p className="font-semibold pb-6">Last Updated: 24th September 2026</p>

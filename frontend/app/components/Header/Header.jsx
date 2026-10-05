@@ -10,6 +10,7 @@ import CartDrawer from '../Cart/CartDrawer';
 import UserNavbar from './UserNavbar';
 import { useCart } from '@/app/context/CartContext';
 import TopSticker from '../TopSticker';
+import { CiSearch } from 'react-icons/ci';
 
 const Header = () => {
   const { cart, cartLoading, totalItems, subtotal } = useCart();
@@ -51,7 +52,7 @@ const Header = () => {
       <header
         className={`
           fixed
-          top-12
+          top-10
           left-0
           w-full
           z-40          
@@ -90,26 +91,29 @@ const Header = () => {
           </div>
           <div className="md:w-1/3 w-auto flex justify-end items-center gap-4">
             <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
-              <CartNavbar toggleCart={toggleCart} totalItem={totalItems} />
+              <button className="text-black text-xl sm:text-2xl md:text-2xl">
+                <CiSearch />
+              </button>
+              {/* <CartNavbar toggleCart={toggleCart} totalItem={totalItems} /> */}
 
-              <UserNavbar
+              {/* <UserNavbar
                 toggleUserdrawer={toggleUserdrawer}
                 userDrawerOpen={userDrawerOpen}
-              />
+              /> */}
             </div>
           </div>
         </div>
       </header>
 
       {/* Cart Drawer */}
-      <CartDrawer
+      {/* <CartDrawer
         cartOpen={cartOpen}
         toggleCart={toggleCart}
         items={items}
         loading={cartLoading}
         subtotal={subtotal}
         totalItem={totalItems}
-      />
+      /> */}
     </>
   );
 };

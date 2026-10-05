@@ -60,13 +60,6 @@ const MobileHeader = () => {
             >
               Shops
             </Link>
-            <Link
-              href="/"
-              onClick={handleOpenMenu}
-              className="flex w-full text-grey-600 hover:text-black py-3"
-            >
-              Customize
-            </Link>
           </nav>
         </div>
       </div>

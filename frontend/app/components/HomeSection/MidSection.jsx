@@ -3,7 +3,7 @@ import React from 'react';
 
 const MidSection = () => {
   return (
-    <section className="py-14">
+    <section className="md:pt-14 pt-8 pb-0">
       <div className="container px-6 mx-auto">
         <Image
           src="/midsecImagetwo.png"

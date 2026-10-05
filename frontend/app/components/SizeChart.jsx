@@ -53,7 +53,7 @@ const SizeChart = ({ isOpen, onClose, sizeChartCode }) => {
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-5 top-5 z-20 text-3xl leading-none text-gray-700 transition hover:text-black"
+            className="absolute md:right-5 right-2 top-2 md:top-5 z-20 text-3xl leading-none text-gray-700 transition hover:text-black"
             aria-label="Close size chart"
           >
             ×
@@ -65,7 +65,7 @@ const SizeChart = ({ isOpen, onClose, sizeChartCode }) => {
             <button
               type="button"
               onClick={() => setActiveTab('size')}
-              className={`relative py-5 text-lg font-medium transition ${
+              className={`relative py-5 text-[11px] md:text-lg font-medium transition ${
                 activeTab === 'size'
                   ? 'text-[#ff385c]'
                   : 'text-black hover:text-[#ff385c]'
@@ -81,7 +81,7 @@ const SizeChart = ({ isOpen, onClose, sizeChartCode }) => {
             <button
               type="button"
               onClick={() => setActiveTab('measure')}
-              className={`relative py-5 text-lg font-medium transition ${
+              className={`relative py-5 text-[11px] md:text-lg font-medium transition ${
                 activeTab === 'measure'
                   ? 'text-[#ff385c]'
                   : 'text-black hover:text-[#ff385c]'

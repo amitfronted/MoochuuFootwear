@@ -6,7 +6,7 @@ const RelatedProducts = ({ productId, category }) => {
     return null;
   }
   return (
-    <section className="relative py-10 lg:px-12 md:px-4 px-4 container mx-auto mt-12">
+    <section className="relative lg:py-10 lg:px-12 md:px-4 px-0 py-4 container mx-auto mt-12">
       <FourBoxSection
         title="Related Products"
         subtitle="You may also like these products"

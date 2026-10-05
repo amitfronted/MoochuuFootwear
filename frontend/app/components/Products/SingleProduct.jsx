@@ -1172,7 +1172,7 @@ const SingleProduct = ({ product }) => {
                 cartLoading ||
                 addToCartLock.current
               }
-              onClick={handleAddToCart}
+              // onClick={handleAddToCart}
               className="mt-8 w-full rounded-md bg-black px-6 py-3 font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 sticky bottom-4 z-20 md:static"
             >
               {cartLoading
@@ -1181,7 +1181,7 @@ const SingleProduct = ({ product }) => {
                   ? 'Select Size'
                   : combinationOutOfStock
                     ? 'Out of Stock'
-                    : 'Add to Cart'}
+                    : 'Size Selected'}
             </button>
           </div>
           <div>

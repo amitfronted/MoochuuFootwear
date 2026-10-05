@@ -60,7 +60,7 @@ const FourBoxSection = ({ title, subtitle, categories = [] }) => {
   }, [categories]);
 
   return (
-    <section className="px-4 py-16 sm:py-20 lg:py-24">
+    <section className="px-4 md:py-16 sm:py-10 lg:py-24 py-12">
       {/* Section Heading */}
       <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12 lg:mb-14">
         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-semibold text-black">
