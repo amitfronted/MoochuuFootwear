@@ -1164,7 +1164,7 @@ const SingleProduct = ({ product }) => {
                 ADD TO CART
             ===================================== */}
 
-            <button
+            {/* <button
               type="button"
               disabled={
                 !selectedSize ||
@@ -1182,7 +1182,23 @@ const SingleProduct = ({ product }) => {
                   : combinationOutOfStock
                     ? 'Out of Stock'
                     : 'Size Selected'}
-            </button>
+            </button> */}
+            {selectedSize && !combinationOutOfStock && (
+              <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-6 text-center">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  Something Exciting Is Coming
+                </h3>
+
+                <p className="mt-3 text-sm leading-6 text-gray-600">
+                  We’re currently showcasing our latest products and
+                  collections. Our online shopping experience is coming soon.
+                </p>
+
+                <p className="mt-2 text-sm font-medium text-gray-900">
+                  Stay tuned!
+                </p>
+              </div>
+            )}
           </div>
           <div>
             {/* {product.description && (

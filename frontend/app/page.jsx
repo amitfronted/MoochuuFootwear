@@ -19,7 +19,7 @@ export default function Home() {
       />
       <HeroSectionTwo />
       <FourBoxSection
-        title="Only For Women"
+        title="Women and Unisex"
         subtitle="Explore beautiful styles for women."
         categories={['women']}
       />

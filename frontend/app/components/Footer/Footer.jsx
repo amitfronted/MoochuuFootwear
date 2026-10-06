@@ -80,7 +80,8 @@ const Footer = () => {
               </li>
               <li className="relative md:px-8 px-2">
                 <Link
-                  href={'/'}
+                  href={'https://www.instagram.com/moochuu.india/'}
+                  target="_blank"
                   className="relative 
                 inline-block   
                 after:content-['']   
