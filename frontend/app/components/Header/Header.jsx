@@ -94,9 +94,9 @@ const Header = () => {
             <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
               <Link
                 href="/find-my-store"
-                className="uppercase font-semibold text-black relative inline-block after:content-[''] after:absolute after:left-1/2 after:-translate-x-1/2 after:-bottom-1 after:h-0.5 after:w-0 after:bg-black after:transition-all after:duration-500 hover:after:w-full"
+                className="hidden uppercase font-semibold text-black relative md:inline-block after:content-[''] after:absolute after:left-1/2 after:-translate-x-1/2 after:-bottom-1 after:h-0.5 after:w-0 after:bg-black after:transition-all after:duration-500 hover:after:w-full"
               >
-                Find The Location
+                Find My Store
               </Link>
               {/* <CartNavbar toggleCart={toggleCart} totalItem={totalItems} /> */}
 

@@ -33,7 +33,10 @@ const OrderRow = () => {
         <td className="px-4 py-4 text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-3 w-80">
             <div className="rounded-circle w-14 h-14">
-              <img src="/man.png" alt="user" />
+              <img
+                src="https://res.cloudinary.com/mrz0rec5/image/upload/v1791765740/man.png"
+                alt="user"
+              />
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-black text-[14px] font-semibold">
