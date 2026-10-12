@@ -1,5 +1,6 @@
 import localFont from 'next/font/local';
 import './globals.css';
+import 'leaflet/dist/leaflet.css';
 import Header from './components/Header/Header';
 import Footer from './components/Footer/Footer';
 import Providers from './components/Providers';

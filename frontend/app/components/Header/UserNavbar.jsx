@@ -36,7 +36,10 @@ const UserNavbar = ({ toggleUserdrawer, userDrawerOpen }) => {
         onClick={toggleUserdrawer}
       >
         <img
-          src={user?.avatar || '/man.png'}
+          src={
+            user?.avatar ||
+            'https://res.cloudinary.com/mrz0rec5/image/upload/v1791765740/man.png'
+          }
           alt={user.name || 'user'}
           className="w-9 h-9 md:w-12 md:h-12 rounded-full border border-yellow object-cover"
           loading="eager"

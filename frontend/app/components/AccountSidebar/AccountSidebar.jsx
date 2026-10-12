@@ -81,7 +81,10 @@ const AccountSidebar = () => {
       <div className="flex flex-col items-center justify-center p-4">
         <div className="group relative mt-3 h-24 w-24 overflow-hidden rounded-full">
           <Image
-            src={user?.avatar || '/man.png'}
+            src={
+              user?.avatar ||
+              'https://res.cloudinary.com/mrz0rec5/image/upload/v1791765740/man.png'
+            }
             alt="Amit Kumar Singh"
             fill
             sizes="96px"

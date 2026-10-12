@@ -21,6 +21,7 @@ import inventoryRouter from './routes/inventory.routes.js';
 import { razorpayWebhookController } from './controllers/razorpayWebhook.controller.js';
 import couponRouter from './routes/coupon.routes.js';
 import { startReservationExpiryJob } from './jobs/releaseExpiredReservations.js';
+import storeRouter from './routes/store.route.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -84,6 +85,7 @@ app.use('/api/notifications', notificationRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/inventory', inventoryRouter);
 app.use('/api/coupons', couponRouter);
+app.use('/api/store', storeRouter);
 
 connectDb().then(() => {
   app.listen(PORT, () => {

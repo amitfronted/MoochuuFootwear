@@ -33,7 +33,7 @@ const WelcomeBox = () => {
           <div className="w-full relative">
             <div className="relative right-0 w-full h-full flex items-center justify-center">
               <img
-                src="/ecommerce-png-png.png"
+                src="https://res.cloudinary.com/mrz0rec5/image/upload/v1791765742/ecommerce-png-png.png"
                 alt="Dashboard illustration"
                 className="w-full h-auto object-contain"
               />

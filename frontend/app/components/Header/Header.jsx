@@ -11,6 +11,7 @@ import UserNavbar from './UserNavbar';
 import { useCart } from '@/app/context/CartContext';
 import TopSticker from '../TopSticker';
 import { CiSearch } from 'react-icons/ci';
+import Link from 'next/link';
 
 const Header = () => {
   const { cart, cartLoading, totalItems, subtotal } = useCart();
@@ -91,9 +92,12 @@ const Header = () => {
           </div>
           <div className="md:w-1/3 w-auto flex justify-end items-center gap-4">
             <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
-              <button className="text-black text-xl sm:text-2xl md:text-2xl">
-                <CiSearch />
-              </button>
+              <Link
+                href="/find-my-store"
+                className="uppercase font-semibold text-black relative inline-block after:content-[''] after:absolute after:left-1/2 after:-translate-x-1/2 after:-bottom-1 after:h-0.5 after:w-0 after:bg-black after:transition-all after:duration-500 hover:after:w-full"
+              >
+                Find The Location
+              </Link>
               {/* <CartNavbar toggleCart={toggleCart} totalItem={totalItems} /> */}
 
               {/* <UserNavbar

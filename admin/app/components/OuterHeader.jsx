@@ -9,14 +9,14 @@ const OuterHeader = () => {
   return (
     <section className="w-full fixed top-0 left-0 z-100 bg-white">
       <img
-        src="/patern.webp"
+        src="https://res.cloudinary.com/mrz0rec5/image/upload/v1791765741/patern.webp"
         alt="image"
         className="w-full h-fit object-cover opacity-5"
       />
       <div className="w-full fixed top-0 left-0 py-3">
         <div className="w-[90%] m-auto flex items-center justify-between">
           <img
-            src="/logo.png"
+            src="https://res.cloudinary.com/mrz0rec5/image/upload/v1791765743/logo.png"
             alt="logo"
             className=" w-20 h-20"
             loading="eager"

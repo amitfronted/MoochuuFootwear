@@ -9,7 +9,7 @@ const Logo = () => {
       className="min-h-9 flex items-center justify-start gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
     >
       <Image
-        src="/logo.png"
+        src="https://res.cloudinary.com/mrz0rec5/image/upload/v1791765743/logo.png"
         alt="logo"
         width={80}
         height={80}

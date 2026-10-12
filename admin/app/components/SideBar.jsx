@@ -8,6 +8,7 @@ import {
   MdKeyboardArrowDown,
   MdOutlineShoppingBag,
   MdOutlineInventory2,
+  MdLocationOn,
 } from 'react-icons/md';
 import { FiRotateCcw } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
@@ -34,6 +35,13 @@ const NAVIGATION_ITEMS = [
     label: 'Return',
     icon: <FiRotateCcw size={20} />,
     href: '/dashboard/return',
+    roles: ['SUPER_ADMIN', 'ADMIN'],
+  },
+  {
+    id: 'stores',
+    label: 'Store Locations',
+    icon: <MdLocationOn size={20} />,
+    href: '/dashboard/stores',
     roles: ['SUPER_ADMIN', 'ADMIN'],
   },
   {
@@ -245,7 +253,7 @@ const SideBar = ({ isSidebarOpen, openSubMenus, toggleSubMenu }) => {
           className="flex flex-wrap items-center gap-4 rounded-md mt-6 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         >
           <img
-            src="/man.png"
+            src="https://res.cloudinary.com/mrz0rec5/image/upload/v1791765740/man.png"
             className="w-10 h-10 rounded-md border border-slate-300 dark:border-neutral-700"
             alt="User avatar"
           />

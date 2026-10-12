@@ -84,3 +84,17 @@ export const validateCoupon = async ({ code, subtotal }) => {
 
   return response.data;
 };
+
+// STORE LOCATION API
+export const fetchAllStores = async (filters = {}) => {
+  const response = await api.get('/store/all', {
+    params: filters,
+  });
+
+  return response.data;
+};
+
+export const fetchStoreById = async (storeId) => {
+  const response = await api.get(`/store/${storeId}`);
+  return response.data;
+};

@@ -294,3 +294,32 @@ export const deleteCoupon = async (couponId) => {
   const res = await api.delete(`/coupons/admin/${couponId}`);
   return res.data;
 };
+
+// ---------------------------------------------
+// STORE LOCATION API
+// ---------------------------------------------
+
+export const fetchAllStoresAdmin = async (params = {}) => {
+  const res = await api.get('/store/admin/all', { params });
+  return res.data;
+};
+
+export const createStore = async (payload) => {
+  const res = await api.post('/store/create', payload);
+  return res.data;
+};
+
+export const updateStore = async (storeId, payload) => {
+  const res = await api.put(`/store/update/${storeId}`, payload);
+  return res.data;
+};
+
+export const updateStoreStatus = async (storeId, status) => {
+  const res = await api.patch(`/store/status/${storeId}`, { status });
+  return res.data;
+};
+
+export const deleteStore = async (storeId) => {
+  const res = await api.delete(`/store/delete/${storeId}`);
+  return res.data;
+};

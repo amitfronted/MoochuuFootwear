@@ -57,7 +57,10 @@ const Header = ({
               className="border border-slate-300 rounded-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               <img
-                src={user.avatar || '/man.png'}
+                src={
+                  user.avatar ||
+                  'https://res.cloudinary.com/mrz0rec5/image/upload/v1791765740/man.png'
+                }
                 alt="profile-pic"
                 className="size-9 rounded-full"
               />
