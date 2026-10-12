@@ -6,7 +6,7 @@ const VideoSection = () => {
       <div className="video-docker absolute top-0 left-0 w-full h-full overflow-hidden">
         <video
           className="min-w-full min-h-full absolute object-cover"
-          src="/video-moochuu.mp4"
+          src="/moochhu-video.mp4"
           type="video/mp4"
           autoPlay
           muted
